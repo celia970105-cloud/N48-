@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import { SUBWAY_QUESTIONS } from '../../data/subwayQuestions';
-import { PlayerProfile, GamePhase, GameMode, SeatDilemmaOutcome } from '../../types/subwayGame';
+import { PlayerProfile, GamePhase, SeatDilemmaOutcome, HelpfulNpcEvent, HelpfulNpcOption } from '../../types/subwayGame';
 import { PregnantMomIllustration, CharacterMood, MomStance } from './PregnantMomIllustration';
 import {
   playKawaiiCoin,
@@ -73,7 +73,6 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
   const currentMomName = profile.name.trim() || '媽咪';
 
   const [phase, setPhase] = useState<GamePhase>('welcome');
-  const [gameMode, setGameMode] = useState<GameMode>('full_tour');
   const [currentQIndex, setCurrentQIndex] = useState(0);
   const [correctCount, setCorrectCount] = useState(0);
   const [mistakeCount, setMistakeCount] = useState(0);
@@ -99,26 +98,15 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
   const [consecutiveCorrect, setConsecutiveCorrect] = useState(0);
   const [maxStreak, setMaxStreak] = useState(0);
 
-  // Maternity Backpack Items System
-  const [items, setItems] = useState<{
-    cracker: number; // 50/50 排除卡
-    plum: number;    // +10 秒生津酸梅
-    shield: number;  // 免失衡金牌護盾
-    socks: number;   // 平衡回滿彈性襪
-  }>({
-    cracker: 2,
-    plum: 2,
-    shield: 1,
-    socks: 1
-  });
-  const [eliminatedIndices, setEliminatedIndices] = useState<number[]>([]);
+  // Active Protection & Option Eliminator
   const [hasShield, setHasShield] = useState(false);
+  const [eliminatedIndices, setEliminatedIndices] = useState<number[]>([]);
 
-  // Interactive Mini-Games
-  const [activeMiniGame, setActiveMiniGame] = useState<'balance_qte' | 'grandma_basket' | 'seat_dilemma' | null>(null);
-  const [qteProgress, setQteProgress] = useState(0);
-  const [qteTimeLeft, setQteTimeLeft] = useState(5);
-  const qteTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Interactive Helpful NPC Event Modal
+  const [activeNpcEvent, setActiveNpcEvent] = useState<HelpfulNpcEvent | null>(null);
+
+  // Interactive Mini-Games (Seat Dilemma)
+  const [activeMiniGame, setActiveMiniGame] = useState<'seat_dilemma' | null>(null);
 
   // Seat Dilemma Random Event States
   const [dilemmaTimeLeft, setDilemmaTimeLeft] = useState(8);
@@ -151,10 +139,8 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
   const [timeLeft, setTimeLeft] = useState(QUESTION_TIME_LIMIT);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Target wins based on mode
-  const targetWinCount =
-    gameMode === 'full_tour' ? 16 :
-    gameMode === 'quick_challenge' ? 8 : 999;
+  // Total questions across all stations on the Red Line route
+  const TOTAL_QUESTIONS = SUBWAY_QUESTIONS.length;
 
   // Current station
   const currentStation =
@@ -185,14 +171,6 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
 
       const key = e.key.toLowerCase();
 
-      // QTE Spacebar support
-      if (activeMiniGame === 'balance_qte') {
-        if (key === ' ' || key === 'enter') {
-          e.preventDefault();
-          handleQteTap();
-        }
-        return;
-      }
 
       // Seat Dilemma keyboard support
       if (activeMiniGame === 'seat_dilemma') {
@@ -221,15 +199,17 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
         else if (key === '4' || key === 'd') handleSelectAnswer(3);
       } else if (showExplanation && (key === ' ' || key === 'enter')) {
         e.preventDefault();
-        if (correctCount < targetWinCount && mistakeCount < MAX_MISTAKES && currentQIndex < SUBWAY_QUESTIONS.length - 1) {
+        if (mistakeCount < MAX_MISTAKES && currentQIndex < SUBWAY_QUESTIONS.length - 1) {
           handleNextQuestion();
+        } else if (mistakeCount < MAX_MISTAKES && currentQIndex >= SUBWAY_QUESTIONS.length - 1) {
+          handleTriggerWin();
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [phase, showExplanation, selectedOption, timeLeft, correctCount, mistakeCount, currentQIndex, activeMiniGame, targetWinCount, dilemmaOutcome]);
+  }, [phase, showExplanation, selectedOption, timeLeft, correctCount, mistakeCount, currentQIndex, activeMiniGame, dilemmaOutcome]);
 
   // Play audio in background
   const playBackgroundAudio = () => {
@@ -344,7 +324,7 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
 
   // Question Countdown Timer
   useEffect(() => {
-    if (phase !== 'playing' || showExplanation || activeMiniGame !== null) {
+    if (phase !== 'playing' || showExplanation || activeMiniGame !== null || activeNpcEvent !== null) {
       if (timerRef.current) clearInterval(timerRef.current);
       return;
     }
@@ -365,7 +345,7 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [phase, currentQIndex, showExplanation, activeMiniGame]);
+  }, [phase, currentQIndex, showExplanation, activeMiniGame, activeNpcEvent]);
 
   const handleStartGame = () => {
     playBackgroundAudio();
@@ -381,9 +361,9 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
     setIsTimeout(false);
     setEliminatedIndices([]);
     setActiveMiniGame(null);
+    setActiveNpcEvent(null);
     setIsSeated(false);
     setHasShield(false);
-    setItems({ cracker: 2, plum: 2, shield: 0, socks: 1 });
     setTimeLeft(QUESTION_TIME_LIMIT);
   };
 
@@ -415,34 +395,29 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
         confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
       }
 
-      // Spontaneous Random Seat Offering (讓座隨機出現)
-      if (!isSeated) {
-        const seatOfferRoll = Math.random();
-        if (seatOfferRoll < 0.32 || (nextCorrect >= 4 && seatOfferRoll < 0.55)) {
-          setIsSeated(true);
-          playSuccessChime();
-          confetti({ particleCount: 55, spread: 65, origin: { y: 0.6 } });
-          setPassengerBubble('🧍 讓座同學抬頭看見好孕胸章，立即起立讓座：「媽咪您辛苦了，請坐這裡！」💖');
-          setBroadcastText('💖 乘客主動感動讓座！媽咪安心就座，享受平穩通勤！');
-        } else {
-          setPassengerBubble('💪 媽咪雙手穩穩握好黃色立柱！身體平衡超穩定！');
-          setBroadcastText('💪 媽咪扶好立柱了！車廂前行中，留意是否有好心乘客讓座或空位！');
-        }
+      // Grand Triumphant Seat Offering: ONLY triggers late in the journey (after enduring 18+ correct answers)
+      if (!isSeated && nextCorrect >= 18 && !triggeredIncidents.includes('grand_seat_offering')) {
+        setTriggeredIncidents((prev) => [...prev, 'grand_seat_offering']);
+        setTimeout(() => {
+          triggerGrandSeatOffering();
+        }, 800);
+      } else if (!isSeated) {
+        setPassengerBubble('💪 媽咪雙手抓穩黃色立柱！6.5kg 負重站立，身體平衡超穩定！');
+        setBroadcastText('💪 媽咪扶好立柱了！堅持到底，答對 18 題即可感動全車迎來終極讓座！');
       }
 
       // Spontaneous Random Shield Blessing (護盾隨機出現)
-      if (!hasShield && Math.random() < 0.28) {
+      if (!hasShield && Math.random() < 0.2) {
         setHasShield(true);
-        setItems((prev) => ({ ...prev, shield: prev.shield + 1 }));
-        setPassengerBubble('🛡️ 暖心隨機祝福！熱心乘客送來【好孕金牌護盾】，為媽咪隨機抵擋一次失衡！✨');
+        setPassengerBubble('🛡️ 暖心隨機祝福！熱心乘客送來【好孕金牌護盾】，為媽咪抵擋一次急煞失衡！✨');
         playKawaiiCoin();
       }
 
-      // Check Win Condition
-      if (nextCorrect >= targetWinCount || currentQIndex >= SUBWAY_QUESTIONS.length - 1) {
+      // Check Win Condition (reaching the end of the Red Line route at 淡水終點站)
+      if (currentQIndex >= SUBWAY_QUESTIONS.length - 1) {
         setTimeout(() => {
           handleTriggerWin();
-        }, 1300);
+        }, 1800);
       }
     } else {
       playQuizWrongChime();
@@ -490,6 +465,10 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
       setTimeout(() => {
         setPhase('lost');
       }, 1400);
+    } else if (currentQIndex >= SUBWAY_QUESTIONS.length - 1) {
+      setTimeout(() => {
+        handleTriggerWin();
+      }, 2500);
     }
   };
 
@@ -503,12 +482,19 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
     setCurrentQIndex(nextQ);
 
     // Station Transition Check
+    // Station Transition Check
     if (nextQ === 5 || nextQ === 10 || nextQ === 15 || nextQ === 20) {
       playSubwayStationChime();
       playMetroDoorBeep();
-      // Trigger Balance QTE Mini-Game at station curve!
-      triggerBalanceQte();
-      return;
+      const stationNames: Record<number, string> = {
+        5: '關渡站',
+        10: '竹圍站',
+        15: '紅樹林站',
+        20: '淡水終點站',
+      };
+      const stName = stationNames[nextQ] || '下一站';
+      setPassengerBubble(`🚇 叮咚！列車已駛抵【${stName}】，車門即將開啟，請小心月台間隙～`);
+      setBroadcastText(`🚇 叮咚！列車抵達【${stName}】，全體乘客上下車請握好扶手！`);
     }
 
     // Seat Dilemma Random Event Check: occurs randomly when not seated
@@ -527,15 +513,13 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
         desc: '前方大彎道！車廂離心力晃動，請立即握穩黃色立柱！',
         actionText: '💪 抓緊立柱！'
       });
-    } else if (nextQ === 7 && !triggeredIncidents.includes('plum')) {
-      setTriggeredIncidents((prev) => [...prev, 'plum']);
-      setActiveIncident({
-        id: 'plum',
-        title: '👵 暖心小巧思：陳阿嬤遞來生津話梅！',
-        desc: '陳阿嬤看媽咪有點孕吐臉色微白：「妹妹吃顆話梅含著生津止渴！」失衡容錯次數 +1，答題時間延長 +5 秒！',
-        actionText: '💖 謝謝陳阿嬤！'
-      });
-    } else if (nextQ === 12 && !triggeredIncidents.includes('dog')) {
+    } else if (nextQ === 6 && !triggeredIncidents.includes('grandma_veggies')) {
+      setTriggeredIncidents((prev) => [...prev, 'grandma_veggies']);
+      triggerHelpfulNpc('grandma_veggies');
+    } else if (nextQ === 11 && !triggeredIncidents.includes('student_ming')) {
+      setTriggeredIncidents((prev) => [...prev, 'student_ming']);
+      triggerHelpfulNpc('student_ming');
+    } else if (nextQ === 13 && !triggeredIncidents.includes('dog')) {
       setTriggeredIncidents((prev) => [...prev, 'dog']);
       setActiveIncident({
         id: 'dog',
@@ -543,16 +527,9 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
         desc: '推車裡的小柴犬探出毛茸茸小臉蛋汪了一聲，吐出小舌頭，全車乘客被融化！緊張氣氛消除，答題時間延長 +5 秒！',
         actionText: '🥰 摸摸小柴犬！'
       });
-    } else if (nextQ === 17 && !triggeredIncidents.includes('broadcast')) {
-      setTriggeredIncidents((prev) => [...prev, 'broadcast']);
-      setHasShield(true);
-      setItems((prev) => ({ ...prev, shield: prev.shield + 1 }));
-      setActiveIncident({
-        id: 'broadcast',
-        title: '📢 暖心廣播：北捷站務廣播同理心宣導！',
-        desc: '廣播響起：「車廂內請主動關心身邊需要座位的旅客，感謝您的愛心。」全車乘客好感度暴增，隨機獲贈【好孕護盾 x1】！',
-        actionText: '✨ 感受車廂溫暖！'
-      });
+    } else if (nextQ === 16 && !triggeredIncidents.includes('station_officer')) {
+      setTriggeredIncidents((prev) => [...prev, 'station_officer']);
+      triggerHelpfulNpc('station_officer');
     } else if (nextQ === 22 && !triggeredIncidents.includes('kick')) {
       setTriggeredIncidents((prev) => [...prev, 'kick']);
       setActiveIncident({
@@ -562,55 +539,6 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
         actionText: '🥰 摸摸肚肚繼續加油！'
       });
     }
-  };
-
-  // Balance QTE Mini-Game
-  const triggerBalanceQte = () => {
-    setActiveMiniGame('balance_qte');
-    setQteProgress(20);
-    setQteTimeLeft(5);
-
-    if (qteTimerRef.current) clearInterval(qteTimerRef.current);
-    qteTimerRef.current = setInterval(() => {
-      setQteTimeLeft((prev) => {
-        if (prev <= 1) {
-          if (qteTimerRef.current) clearInterval(qteTimerRef.current);
-          handleFinishQte(false);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  };
-
-  const handleQteTap = () => {
-    playKawaiiPop();
-    setQteProgress((prev) => {
-      const next = prev + 18;
-      if (next >= 100) {
-        if (qteTimerRef.current) clearInterval(qteTimerRef.current);
-        handleFinishQte(true);
-        return 100;
-      }
-      return next;
-    });
-  };
-
-  const handleFinishQte = (success: boolean) => {
-    if (success) {
-      playSuccessChime();
-      confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
-      setBalance(100);
-      setItems((prev) => ({ ...prev, shield: prev.shield + 1 }));
-      setPassengerBubble('🎉 平衡挑戰大成功！四平八穩無傷通過，獲得【好孕護盾 x1】！');
-      setBroadcastText('💪 媽咪身手矯健，獲得全車乘客一致起立鼓掌！');
-    } else {
-      playKawaiiOuch();
-      setPassengerBubble('😵 列車太晃啦！稍微踉蹌了一下，但媽咪還是努力站穩了！');
-    }
-    setTimeout(() => {
-      setActiveMiniGame(null);
-    }, 1100);
   };
 
   // Seat Dilemma Event Trigger
@@ -643,69 +571,58 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
       setIsSeated(true);
       setBalance(100);
       setHasShield(true);
-      setItems((prev) => ({ ...prev, shield: prev.shield + 1 }));
-      setPassengerBubble('💖 隔壁張老爺爺笑著點頭：「妹子肚子那麼大快坐好！保護寶寶最重要！」');
-      setBroadcastText('💖 媽咪安穩就座！懂得照顧自己與寶寶，全車乘客安心點頭！');
+      setPassengerBubble('💖 隔壁張老爺爺笑著點頭：「妹子肚子那麼大快抓緊立柱！保護寶寶最重要！」');
+      setBroadcastText('💖 媽咪獲得自愛護盾！平衡值回滿 100%，抓穩立柱迎接後續考驗！');
 
       setDilemmaOutcome({
         choice: 'self',
         title: '【母子平安 · 懂得自愛的智慧】',
-        story: `${currentMomName}輕撫著 6.5kg 的孕肚快步安穩就座，緊繃沉重的下背與水腫雙腿瞬間獲得解放，肚子裡的寶寶也開心地輕踢了一下！旁邊拄著拐杖的張老爺爺見狀和藹笑道：「妹子快坐好！懷孕是兩條人命，肚子這麼大站著太危險了，這是妳應得的！」後方的高中生也主動站起來把位置讓給老爺爺，全車皆大歡喜！`,
-        moral: '懷孕期間生理負擔沉重，適時接受並使用博愛座是照顧胎兒的成熟表現，不用對照顧自己的需求感到內疚！',
-        rewardText: '✨ 進入安穩就座狀態！站立壓力歸零、平衡值回滿 100%、隨機獲得【好孕自愛護盾 x1】！',
+        story: `${currentMomName}輕撫著 6.5kg 的孕肚扶穩立柱，緊繃沉重的下背獲得舒緩，肚子裡的寶寶也開心地輕踢了一下！旁邊拄著拐杖的張老爺爺見狀和藹笑道：「妹子站穩扶好！懷孕是兩條人命，妳很勇敢！」媽咪精力充沛，準備繼續挑戰！`,
+        moral: '懷孕期間生理負擔沉重，懂得照顧自己、抓牢立柱防禦晃動，是保護胎兒的成熟表現！',
+        rewardText: '✨ 平衡值回滿 100%！獲得【好孕自愛護盾】，防禦下一次急煞！',
         badge: '💖 好孕自愛守護者',
-        icon: '💺'
+        icon: '🛡️'
       });
     } else if (choice === 'elder') {
       playSuccessChime();
       confetti({ particleCount: 110, spread: 85, origin: { y: 0.5 } });
-      setIsSeated(true);
       setConsecutiveCorrect((c) => c + 1);
       setBalance(100);
       setHasShield(true);
-      setItems((prev) => ({
-        cracker: prev.cracker + 1,
-        plum: prev.plum + 1,
-        shield: prev.shield + 1,
-        socks: prev.socks + 1
-      }));
-      setPassengerBubble('😭 全車乘客大震撼：「天哪！懷孕媽咪主動讓座！」全車起立讓座！');
-      setBroadcastText('🌟 善念大循環！全車乘客深受感動，全員主動起立為媽咪讓座！');
+      setPassengerBubble('😭 老爺爺與全車乘客感動讚揚：「謝謝堅強偉大的準媽咪！」');
+      setBroadcastText('🌟 善念大循環！老爺爺安穩就座，全車乘客為媽咪的毅力喝采！');
 
       setDilemmaOutcome({
         choice: 'elder',
-        title: '【善念大循環 · 暖心天使引發全車起立】',
-        story: `${currentMomName}親切招呼：「張爺爺您小心走，這裡有空位您快坐！」老爺爺眼泛熱淚緊握媽咪雙手感激不已。這一幕被車廂裡的乘客全看在眼裡——戴耳機的高中生與低頭滑手機的上班族滿臉慚愧，瞬間「刷」地全員起立為媽咪讓出 3 個座位，熱情招呼媽咪入座！車廂響起了溫暖感動的掌聲！`,
-        moral: '善意是具備強大傳染力的！一次無私體貼的舉動，化解了都市通勤的冷漠，喚醒了整個車廂對弱勢互助的同理心！',
-        rewardText: '🎉 全車乘客起立讓座！背包錦囊全滿（餅乾+話梅+護盾+彈性襪各+1），獲得好孕護盾，解鎖就座！',
+        title: '【善念大循環 · 暖心天使感動全車】',
+        story: `${currentMomName}親切招呼：「張爺爺您小心走，這裡有空位您快坐！」老爺爺眼泛熱淚緊握媽咪雙手感激不已。這一幕被車廂裡的乘客看在眼裡，大家紛紛投以佩服眼光，為媽咪騰出更多抓握空間！車廂響起了溫暖感動的掌聲！`,
+        moral: '善意是具備強大傳染力的！一次無私體貼的舉動，化解了都市通勤的冷漠，也讓身邊人看見母愛的偉大！',
+        rewardText: '🎉 平衡回滿 100%、連勝紀錄 +1、獲得【善念護盾】！',
         badge: '✨ 善念循環天使',
         icon: '🤝'
       });
     } else if (choice === 'collaborate') {
       playSuccessChime();
       confetti({ particleCount: 85, spread: 70, origin: { y: 0.55 } });
-      setIsSeated(true);
-      setTimeLeft((t) => t + 5);
+      setTimeLeft((t) => t + 8);
       setBalance(100);
       setHasShield(true);
-      setItems((prev) => ({ ...prev, plum: prev.plum + 2, shield: prev.shield + 1 }));
-      setPassengerBubble('🥰 同學滿臉通紅誠懇鞠躬：「對不起玩手遊太專注！媽咪快請坐！」');
-      setBroadcastText('🤝 智慧溝通化解冷漠！老爺爺與媽咪同時安穩就座，雙贏大圓滿！');
+      setPassengerBubble('🥰 同學滿臉通紅誠懇鞠躬：「對不起玩手遊太專注！學姊我幫妳護住扶手！」');
+      setBroadcastText('🤝 智慧溝通化解冷漠！老爺爺安穩入座，同學協助媽咪護好立柱！');
 
       setDilemmaOutcome({
         choice: 'collaborate',
         title: '【溫暖車廂外交官 · 智慧雙贏大團圓】',
-        story: `${currentMomName}先扶著老爺爺入座，接著微笑輕拍身旁年輕同學：「同學您好，可以跟您借個座位給孕婦休息嗎？」同學抬頭看見好孕胸章，立刻滿臉通紅誠懇鞠躬：「對不起！我玩手遊太專注了，媽咪您快請坐！」老爺爺與媽咪同時安穩就座，兩人開心地聊了起來，車廂充滿歡笑！`,
-        moral: '主動溫和的開口不是索求，而是給予身邊人行善覺察的契機。許多人不是冷漠，只是沉浸於螢幕，智慧溝通能創造最溫暖的雙贏！',
-        rewardText: '💡 雙人安穩就座！答題倒數時間額外 +5 秒，獲得生津話梅 x2，平衡回滿！',
+        story: `${currentMomName}先扶著老爺爺入座，接著微笑輕拍身旁年輕同學：「同學您好，可以跟您借個座位給老爺爺嗎？」同學抬頭看見好孕胸章與爺爺，立刻滿臉通紅誠懇鞠躬，主動站起來扶持老爺爺，並幫媽咪護好立柱周圍安全空間！`,
+        moral: '主動溫和的開口不是索求，而是給予身邊人行善覺察的契機。智慧溝通能創造最溫暖的雙贏！',
+        rewardText: '💡 平衡回滿 100%、答題倒數時間額外 +8 秒，獲得【協調守護盾】！',
         badge: '🤝 智慧雙贏協調家',
         icon: '💡'
       });
     } else {
       // Timeout
       playKawaiiPop();
-      setBalance((b) => Math.min(100, b + 50));
-      setItems((prev) => ({ ...prev, socks: prev.socks + 1 }));
+      setBalance(100);
       setPassengerBubble('😊 老爺爺和藹微笑：「妹子我們一起扶好立柱，快到站了！」');
       setBroadcastText('🚇 互相體諒互相打氣，心中有愛便能站得更穩！');
 
@@ -714,7 +631,7 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
         title: '【通勤片刻的溫柔沉思】',
         story: '在倒數猶豫的片刻中，一位步履匆匆的乘客先坐了下去。老爺爺慢慢走到媽咪身旁，笑著對媽咪點頭：「妹子我們一起扶好，快到站了！」兩位相視一笑，互相提醒注意平衡，雖未坐下但彼此心中皆感到滿滿暖意。',
         moral: '捷運上每一次座位的流動，都是一堂生動的同理心練習。無論有沒有坐到位置，心中有愛便能站得更穩！',
-        rewardText: '🌱 體會通勤不易，獲得耐力補給【彈性減壓襪 x1】，平衡值回覆 50%！',
+        rewardText: '🌱 體會通勤不易，心靈受到激勵，平衡值回滿 100%！',
         badge: '🌱 堅定守護心靈',
         icon: '⏰'
       });
@@ -728,44 +645,177 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
     setDilemmaOutcome(null);
   };
 
-  // Item Usage
-  const handleUseItem = (type: 'cracker' | 'plum' | 'shield' | 'socks') => {
-    if (showExplanation || timeLeft <= 0) return;
-    const count = items[type];
-    if (count <= 0) return;
+  // =========================================================================
+  // HELPFUL NPCS SYSTEM (車廂突然出現的好心人幫助流程機制)
+  // =========================================================================
+  const HELPFUL_NPCS: Record<string, HelpfulNpcEvent> = {
+    grandma_veggies: {
+      id: 'grandma_veggies',
+      npcName: '買菜婆婆 陳阿嬤',
+      npcRole: '熱情鄰居長輩 · 百寶菜籃',
+      avatar: '👵🧺',
+      badgeText: '👵 車廂突發溫暖 · 買菜婆婆及時相助',
+      quote: '「妹子看妳挺著大肚子、站得滿頭汗，車上這群年輕人都在滑手機沒人讓座！阿嬤剛從市場買大包小包，菜籃裡這幾樣好康，妳趕快挑一個！」',
+      options: [
+        {
+          title: '接過生津甘草話梅',
+          description: '生津止渴、舒緩孕吐反胃與疲憊！平衡值立即回滿 100%，消除 1 次失衡紀錄，答題時間延長 +8 秒！',
+          icon: '🍋',
+          tag: '回血+減負+延時',
+          effectType: 'restore_balance'
+        },
+        {
+          title: '阿嬤替妳握住立柱護航',
+          description: '「妹子靠著阿嬤，阿嬤幫妳隔開推擠的人潮！」獲得【陳阿嬤愛心護盾】，自動抵擋下一次急煞劇烈晃動！',
+          icon: '🛡️',
+          tag: '免急煞護盾',
+          effectType: 'shield'
+        },
+        {
+          title: '聽阿嬤傳授順產經驗劃重點',
+          description: '「阿嬤生過三胎，這題產科觀念問阿嬤就對了！」阿嬤以過來人智慧幫媽咪劃掉 2 個干擾選項！',
+          icon: '💡',
+          tag: '50/50 排除選項',
+          effectType: 'eliminate_options'
+        }
+      ]
+    },
+    student_ming: {
+      id: 'student_ming',
+      npcName: '高中生小明',
+      npcRole: '剛考完護理課的熱心學弟',
+      avatar: '🎒🧑‍🎓',
+      badgeText: '🧑‍🎓 車廂突發支援 · 高中生小明抬頭相助',
+      quote: '「學姊！我剛才太專注背護理考科，抬頭才看見妳的好孕胸章，真的很不好意思！這題產科觀念我們健康課昨天剛考過，我來支援妳！」',
+      options: [
+        {
+          title: '翻閱小明的精華考卷筆記',
+          description: '「這題考點很典型！」小明直接指出題幹盲點，幫忙劃掉 2 個錯誤干擾選項！',
+          icon: '📖',
+          tag: '50/50 排除選項',
+          effectType: 'eliminate_options'
+        },
+        {
+          title: '借用小明備用的運動彈性護具',
+          description: '給予下肢有力支撐，減輕水腫與久站負擔！平衡值瞬間加滿 100%，下題答題時間延長 +8 秒！',
+          icon: '🧦',
+          tag: '回滿平衡+延時',
+          effectType: 'restore_balance'
+        },
+        {
+          title: '小明用書包幫忙護住立柱走道',
+          description: '「學姊握好，我用肩膀幫妳擋住上下車的衝撞！」獲得【學弟守護盾】，抵消一次急煞！',
+          icon: '🛡️',
+          tag: '急煞防護盾',
+          effectType: 'shield'
+        }
+      ]
+    },
+    station_officer: {
+      id: 'station_officer',
+      npcName: '北捷熱心站務長',
+      npcRole: '捷運安全巡視員',
+      avatar: '🚇👮',
+      badgeText: '🚇 車廂即時關懷 · 北捷站務長巡車守護',
+      quote: '「媽咪您好！我是巡檢列車的站務員。看到您挺著肚子站了這麼多站，真的非常辛苦！我立刻為您提供捷運友善即時支援！」',
+      options: [
+        {
+          title: '廣播車廂禮讓宣導',
+          description: '拿起無線電廣播提醒車廂乘客主動關懷孕婦！全車乘客好感大增，獲得全方位安全護盾！',
+          icon: '📢',
+          tag: '安全護盾',
+          effectType: 'shield'
+        },
+        {
+          title: '調整車廂冷氣柔和出風',
+          description: '柔和微風吹散孕期燥熱與煩悶，精神煥發！答題時間充裕延長 +10 秒！',
+          icon: '🌬️',
+          tag: '時間延長+10s',
+          effectType: 'heal_time'
+        },
+        {
+          title: '遞上北捷溫開水與舒緩指引',
+          description: '補充水分穩定自律神經，平衡值回滿 100%，並消除 1 次失衡紀錄！',
+          icon: '💧',
+          tag: '平衡回滿+消失衡',
+          effectType: 'restore_balance'
+        }
+      ]
+    },
+    grand_seat_offering: {
+      id: 'grand_seat_offering',
+      npcName: '全車乘客與同學們',
+      npcRole: '感動全車的溫馨大讓座',
+      avatar: '🎉💖💺',
+      badgeText: '🌟 奇蹟時刻 · 累積答對 18 題感動全車！',
+      quote: '「天哪！全車乘客看著車站跑馬燈：媽咪挺著 6.5kg 的負重，一路抓緊立柱，已經堅強跨越了 4 座大站、答對了 18 題產科考驗！高中生收起手機、上班族站起身、全車乘客一致起立鼓掌：『媽咪妳太偉大、太厲害了！最後這幾站抵達淡水，請無論如何一定要坐下休息！』」',
+      options: [
+        {
+          title: '欣然就座 · 享受全車掌聲與最後衝刺',
+          description: '媽咪安穩坐上博愛座，雙腳徹底放鬆，解除所有站立晃動與急煞壓力，以最自信的笑容迎向淡水終點站！',
+          icon: '💺',
+          tag: '解鎖安穩就座',
+          effectType: 'grand_seat'
+        }
+      ]
+    }
+  };
 
-    if (type === 'cracker') {
+  const triggerHelpfulNpc = (npcId: string) => {
+    const npc = HELPFUL_NPCS[npcId];
+    if (!npc) return;
+    playSuccessChime();
+    confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
+    setActiveNpcEvent(npc);
+  };
+
+  const triggerGrandSeatOffering = () => {
+    const grandEvent = HELPFUL_NPCS['grand_seat_offering'];
+    if (!grandEvent) return;
+    playSuccessChime();
+    confetti({ particleCount: 120, spread: 85, origin: { y: 0.5 } });
+    setActiveNpcEvent(grandEvent);
+  };
+
+  const handleExecuteNpcHelp = (opt: HelpfulNpcOption) => {
+    playSuccessChime();
+    confetti({ particleCount: 75, spread: 75, origin: { y: 0.6 } });
+    setActiveNpcEvent(null);
+
+    if (opt.effectType === 'heal_time') {
+      setTimeLeft((t) => t + 10);
+      setPassengerBubble(`⏱️ ${opt.title}生效！答題倒數充裕延長 +10 秒！`);
+      setBroadcastText(`✨ 好心人及時相助：${opt.title}！`);
+    } else if (opt.effectType === 'shield') {
+      setHasShield(true);
+      setPassengerBubble(`🛡️ ${opt.title}生效！獲得愛心護盾，抵禦急煞失衡！`);
+      setBroadcastText(`🛡️ 護盾啟動：成功獲得防護守護！`);
+    } else if (opt.effectType === 'eliminate_options') {
       const currentQ = SUBWAY_QUESTIONS[currentQIndex % SUBWAY_QUESTIONS.length];
-      const incorrectIndices = currentQ.options
+      const incorrect = currentQ.options
         .map((_, i) => i)
         .filter((i) => i !== currentQ.correctIndex && !eliminatedIndices.includes(i));
-
-      if (incorrectIndices.length <= 1) {
-        setPassengerBubble('💡 已經不能再排除更多選項囉！');
-        return;
-      }
-
-      const toEliminate = incorrectIndices.slice(0, 2);
+      const toEliminate = incorrect.slice(0, 2);
       setEliminatedIndices((prev) => [...prev, ...toEliminate]);
-      setItems((prev) => ({ ...prev, cracker: prev.cracker - 1 }));
-      playSuccessChime();
-      setPassengerBubble('🍪 吃了乾蘇打餅乾，晨吐反胃消除！學霸同學幫妳劃掉 2 個錯誤選項！');
-    } else if (type === 'plum') {
-      setTimeLeft((t) => t + 10);
-      setItems((prev) => ({ ...prev, plum: prev.plum - 1 }));
-      playKawaiiCoin();
-      setPassengerBubble('🍋 吃下生津酸梅！精神抖擻，答題時間延長 +10 秒！');
-    } else if (type === 'shield') {
-      setHasShield(true);
-      setItems((prev) => ({ ...prev, shield: prev.shield - 1 }));
-      playSuccessChime();
-      setPassengerBubble('🛡️ 好孕金牌胸章啟動！獲得一次免失衡防護盾！');
-    } else if (type === 'socks') {
+      setPassengerBubble(`💡 ${opt.title}生效！成功排除 2 個錯誤選項！`);
+      setBroadcastText(`💡 獲得產科重點支援，精準鎖定正確答案！`);
+    } else if (opt.effectType === 'restore_balance') {
       setBalance(100);
-      setItems((prev) => ({ ...prev, socks: prev.socks - 1 }));
-      playSuccessChime();
-      setPassengerBubble('🧦 穿上梯度醫用彈性襪！下肢血液順暢回流，平衡值回滿 100%！');
+      setMistakeCount((m) => Math.max(0, m - 1));
+      setTimeLeft((t) => t + 5);
+      setPassengerBubble(`💖 ${opt.title}生效！平衡值回滿 100%，失衡次數 -1，時間 +5 秒！`);
+      setBroadcastText(`💖 身體獲得及時調適，重心穩定恢復滿格！`);
+    } else if (opt.effectType === 'grand_seat') {
+      setIsSeated(true);
+      setBalance(100);
+      setHasShield(true);
+      setPassengerBubble('🎉 全車起立讓座！媽咪安心就座，享受舒適通勤！💖');
+      setBroadcastText('🌟 全車乘客感動熱情讓座！媽咪安心入座，直奔淡水終點站！');
     }
+
+    setTimeout(() => {
+      setPassengerBubble(null);
+    }, 4500);
   };
 
   // Resolve dynamic incident
@@ -843,8 +893,8 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
       setPassengerBubble('👶 咚咚！肚子裡的寶寶輕輕踢了一下：『媽咪站得好穩，好棒！』💖');
       confetti({ particleCount: 30, spread: 50, origin: { y: 0.5 } });
     } else if (type === 'grandma') {
-      // Open Grandma's treasure basket modal!
-      setActiveMiniGame('grandma_basket');
+      // Open Grandma's helpful vegetable basket!
+      triggerHelpfulNpc('grandma_veggies');
     } else if (type === 'kid') {
       setPassengerBubble('👧 小學生妹妹：「阿姨妳好！老師說好孕胸章代表肚子裡有可愛的小寶寶，我長大搭捷運也一定會讓座！」🎈');
     } else if (type === 'dog') {
@@ -853,26 +903,17 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
       setPassengerBubble('🐕 柴犬豆豆：「汪汪！(吐著粉嫩小舌頭轉圈圈搖尾巴，答題時間免費 +3 秒！)」🦴');
     } else if (type === 'game') {
       if (isSeated) {
-        setPassengerBubble('🧍 讓座同學：「媽咪請安心坐著！車廂晃動站著很辛苦的！」');
-      } else if (Math.random() < 0.4) {
-        // Spontaneous random seat offering on interaction!
-        setIsSeated(true);
-        playSuccessChime();
-        confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
-        setPassengerBubble('🧍 高中生小明抬頭驚訝：「啊！學姊妳懷孕了！快請坐這裡！」立即起立讓座！💖');
-        setBroadcastText('💖 乘客主動感動讓座！媽咪安心就座，享受平穩通勤！');
+        setPassengerBubble('🧍 讓座同學：「學姊請安心坐著！後面這幾站交給我們守護！」');
       } else {
-        setItems((prev) => ({ ...prev, cracker: prev.cracker + 1 }));
-        setPassengerBubble('🎮 高中生小明：「學姊！我把剛整理好的產科重點筆記給妳！(獲得乾蘇打餅乾 50/50 卡 x1)」');
+        triggerHelpfulNpc('student_ming');
       }
     } else if (type === 'sleep') {
-      if (!hasShield && Math.random() < 0.35) {
+      if (!hasShield) {
         setHasShield(true);
-        setItems((prev) => ({ ...prev, shield: prev.shield + 1 }));
-        setPassengerBubble('😴 上班族林專員驚醒：「抱歉抱歉！這枚幸運【好孕護盾胸章】送給妳，保護妳安全！」(獲得好孕護盾 x1)✨');
+        setPassengerBubble('😴 上班族林專員驚醒：「抱歉抱歉！這枚幸運【好孕護盾胸章】送給妳，保護妳安全！」(獲得好孕護盾)✨');
       } else {
-        setItems((prev) => ({ ...prev, plum: prev.plum + 1 }));
-        setPassengerBubble('😴 上班族林專員：「哈欠...不好意思昨晚加班太累，這顆薄荷話梅給妳提神！(獲得生津話梅 x1)」');
+        setTimeLeft((t) => t + 4);
+        setPassengerBubble('😴 上班族林專員：「哈欠...不好意思昨晚加班太累，這包潤喉糖給妳提神！(時間 +4 秒)」');
       }
     } else {
       setPassengerBubble('📱 追劇小姐姐：「（戴著降噪耳機喝珍奶傻笑）這部韓劇太感人了！媽咪加油喔！」');
@@ -881,20 +922,6 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
     setTimeout(() => {
       setPassengerBubble(null);
     }, 4500);
-  };
-
-  const handlePickGrandmaGift = (giftType: 'cracker' | 'plum' | 'socks') => {
-    playSuccessChime();
-    confetti({ particleCount: 60, spread: 60, origin: { y: 0.6 } });
-    setItems((prev) => ({ ...prev, [giftType]: prev[giftType] + 1 }));
-    setActiveMiniGame(null);
-    if (giftType === 'cracker') {
-      setPassengerBubble('👵 阿嬤笑呵呵：「妹子，這包蘇打餅乾給妳放包包，起床晨吐前含一片就不噁心囉！」(獲得蘇打餅乾 x1)');
-    } else if (giftType === 'plum') {
-      setPassengerBubble('👵 阿嬤笑呵呵：「這顆紫蘇酸梅酸甜生津，胃口大開喔！」(獲得生津話梅 x1)');
-    } else {
-      setPassengerBubble('👵 阿嬤笑呵呵：「這雙彈性襪保護小腿靜脈曲張，站捷運最實用！」(獲得彈性減壓襪 x1)');
-    }
   };
 
   const currentQ = SUBWAY_QUESTIONS[currentQIndex % SUBWAY_QUESTIONS.length];
@@ -923,66 +950,29 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
               站穩啦！{currentMomName}的捷運無座大考驗
             </h1>
             <p className="text-xs sm:text-sm text-[#6B4B52] max-w-lg mx-auto leading-relaxed font-medium">
-              體驗者正在進行 6.5kg 負重實測，<strong>捷運上沒有任何同學主動讓座！</strong> 車廂行進間隨機輕微顛簸，每題限時 <strong>15 秒</strong>，共 <strong>25 題產科精選題庫</strong>，跨越 5 座捷運車站！答對題目抓穩黃色立柱；車廂內會<strong>隨機出現好心乘客讓座、空位抉擇考驗與好孕護盾祝福</strong>；亦有車廂阿嬤菜籃摸彩、柴犬互動等驚喜！
+              體驗者正在進行 6.5kg 負重實測，<strong>捷運車廂無座考驗正式展開！</strong> 媽咪需抓緊立柱抵抗行駛顛簸，每題限時 <strong>15 秒</strong>，共 <strong>25 題產科精選題庫</strong>，跨越 5 座捷運車站！途中會有<strong>買菜婆婆（陳阿嬤）、高中生小明、熱心站務長</strong>突然上前提供暖心協助；需堅持站穩並<strong>答對達 18 題以上</strong>，才能以母愛毅力感動全車迎來終極讓座！
             </p>
           </div>
 
-          {/* Game Mode Selector */}
+          {/* Metro Route Overview (Unified playthrough across all 5 Red Line stations) */}
           <div className="bg-[#FFFCF4]/90 rounded-2xl border-2 border-[#FFBCBD] p-4 text-left space-y-2.5 shadow-xs">
-            <label className="block text-xs font-black text-[#4A3337]">
-              選擇挑戰遊玩模式：
-            </label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => setGameMode('full_tour')}
-                className={`p-3 rounded-xl border-2 text-left transition-all cursor-pointer ${
-                  gameMode === 'full_tour'
-                    ? 'border-[#E85D75] bg-[#FFE0E6] text-[#4A3337] shadow-sm font-black'
-                    : 'border-[#FFBCBD]/50 bg-white text-[#6B4B52] hover:bg-[#FFE0E6]/40'
-                }`}
-              >
-                <div className="flex items-center gap-1.5 font-black text-xs sm:text-sm text-[#E85D75]">
-                  <span>🚇 全線巡禮模式</span>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black text-[#4A3337] flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-red-600 inline-block animate-ping" />
+                🚇 捷運淡水信義線 · 5 站長征路線巡禮
+              </span>
+              <span className="text-[10px] text-[#E85D75] font-black bg-[#FFE0E6] px-2.5 py-0.5 rounded-full border border-[#FFBCBD]/60">
+                共 {TOTAL_QUESTIONS} 題精選產科考驗
+              </span>
+            </div>
+            <div className="grid grid-cols-5 gap-1.5 text-center pt-1">
+              {STATIONS.map((st) => (
+                <div key={st.id} className="p-2 bg-[#FFE0E6]/30 hover:bg-[#FFE0E6]/50 rounded-xl border border-[#FFBCBD]/40 transition-colors">
+                  <div className="text-[10px] font-black text-red-600 font-mono">{st.id}</div>
+                  <div className="text-xs font-black text-[#4A3337] truncate">{st.name}</div>
+                  <div className="text-[9px] text-[#7A5860] hidden sm:block truncate mt-0.5 font-medium">{st.subtitle}</div>
                 </div>
-                <div className="text-[10px] text-[#7A5860] mt-1 font-medium leading-snug">
-                  跨越 5 座車站長征！需答對 16 題或抵達淡水，遊玩時間約 8~12 分鐘（最完整豐富！）
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setGameMode('quick_challenge')}
-                className={`p-3 rounded-xl border-2 text-left transition-all cursor-pointer ${
-                  gameMode === 'quick_challenge'
-                    ? 'border-[#E85D75] bg-[#FFE0E6] text-[#4A3337] shadow-sm font-black'
-                    : 'border-[#FFBCBD]/50 bg-white text-[#6B4B52] hover:bg-[#FFE0E6]/40'
-                }`}
-              >
-                <div className="flex items-center gap-1.5 font-black text-xs sm:text-sm text-[#E85D75]">
-                  <span>⚡ 快速通勤考驗</span>
-                </div>
-                <div className="text-[10px] text-[#7A5860] mt-1 font-medium leading-snug">
-                  快節奏 8 題通關，快速體驗讓座溫馨感動，約 4~6 分鐘！
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setGameMode('endless')}
-                className={`p-3 rounded-xl border-2 text-left transition-all cursor-pointer ${
-                  gameMode === 'endless'
-                    ? 'border-[#E85D75] bg-[#FFE0E6] text-[#4A3337] shadow-sm font-black'
-                    : 'border-[#FFBCBD]/50 bg-white text-[#6B4B52] hover:bg-[#FFE0E6]/40'
-                }`}
-              >
-                <div className="flex items-center gap-1.5 font-black text-xs sm:text-sm text-[#E85D75]">
-                  <span>♾️ 無盡產科試煉</span>
-                </div>
-                <div className="text-[10px] text-[#7A5860] mt-1 font-medium leading-snug">
-                  題目持續不中斷，看媽咪能穩住幾題，挑戰最高連勝紀錄！
-                </div>
-              </button>
+              ))}
             </div>
           </div>
 
@@ -1067,7 +1057,7 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
               title="適合電腦投影/全螢幕遊玩"
             >
               <Monitor className="w-4 h-4 text-[#E85D75]" />
-              <span>{isFullscreen ? '縮小視窗' : '電腦全螢幕模式'}</span>
+              <span>{isFullscreen ? '縮小視窗' : '電腦全螢幕'}</span>
             </button>
           </div>
         </div>
@@ -1124,7 +1114,7 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
                 <div className="text-center">
                   <span className="text-[9px] text-[#7A5860] block font-bold leading-none sm:mb-0.5">答對</span>
                   <span className="text-xs sm:text-sm font-black text-[#E85D75] font-mono">
-                    {correctCount}/{targetWinCount === 999 ? '∞' : targetWinCount}
+                    {correctCount}/{TOTAL_QUESTIONS}
                   </span>
                 </div>
                 <div className="h-6 w-px bg-[#FFBCBD]/60" />
@@ -1458,10 +1448,10 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
                     <div
                       onClick={() => handlePassengerClick('game')}
                       className="flex flex-col items-center cursor-pointer group shrink-0"
-                      title="點擊聽手遊同學說話，可借產科筆記！"
+                      title="點擊尋求高中生小明的筆記與支援！"
                     >
                       <div className="text-[7px] sm:text-[9px] font-bold text-[#6B4B52] bg-[#FFFCF4]/90 px-1 py-0.2 rounded-full mb-0.5 border border-[#FFBCBD] group-hover:bg-[#FFE0E6] whitespace-nowrap">
-                        {correctCount >= 2 ? '👀 抬頭' : '🎮 手遊'}
+                        {correctCount >= 2 ? '👀 小明' : '🎮 小明'}
                       </div>
                       <div className="w-8 h-8 sm:w-11 sm:h-11 rounded-xl bg-[#FFE0E6] border-2 border-[#FFBCBD] flex items-center justify-center text-lg sm:text-2xl shadow-xs group-hover:scale-105 transition-transform">
                         {mistakeCount >= 2 ? '😱' : correctCount >= 2 ? '👀' : '🎧'}
@@ -1470,14 +1460,14 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
                     </div>
                   )}
 
-                  {/* Left Side: Priority Seat 2 (Grandma with Groceries Basket - Interactive Treasure!) */}
+                  {/* Left Side: Priority Seat 2 (Grandma with Groceries Basket - Helpful NPC) */}
                   <div
                     onClick={() => handlePassengerClick('grandma')}
                     className="flex flex-col items-center cursor-pointer group shrink-0"
-                    title="點擊抽阿嬤的百寶菜籃補給品！"
+                    title="點擊尋求買菜婆婆陳阿嬤的愛心相助！"
                   >
                     <div className="text-[7px] sm:text-[9px] font-bold text-[#6B4B52] bg-[#FFFCF4]/90 px-1 py-0.2 rounded-full mb-0.5 border border-[#FFBCBD] group-hover:bg-[#FFE0E6] whitespace-nowrap animate-pulse">
-                      🎁 阿嬤菜籃
+                      👵 買菜婆婆
                     </div>
                     <div className="w-8 h-8 sm:w-11 sm:h-11 rounded-xl bg-[#FFE0E6] border-2 border-[#FFBCBD] flex items-center justify-center text-lg sm:text-2xl shadow-xs group-hover:scale-110 transition-transform">
                       👵
@@ -1567,82 +1557,28 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
 
             {/* Right Column (lg:col-span-5): Question Card & Maternity Backpack Toolbar */}
             <div className="lg:col-span-5 space-y-2.5 sm:space-y-3">
-              {/* Maternity Backpack Items Toolbar */}
-              <div className="bg-[#FFE0E6]/90 rounded-2xl border-2 border-[#FFBCBD] p-2 sm:p-2.5 shadow-2xs flex items-center justify-between gap-1 sm:gap-2">
-                <span className="text-[10px] sm:text-xs font-black text-[#4A3337] flex items-center gap-1 shrink-0">
-                  <span>🎒 好孕錦囊：</span>
+              {/* Question Status Bar */}
+              <div className="bg-[#FFE0E6]/90 rounded-2xl border-2 border-[#FFBCBD] px-3 py-2 shadow-2xs flex items-center justify-between gap-2">
+                <span className="text-[11px] sm:text-xs font-black text-[#4A3337] flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-red-600 inline-block animate-ping" />
+                  <span>{currentStation.name} · {currentStation.subtitle}</span>
                 </span>
 
-                <div className="flex items-center gap-1 sm:gap-1.5 flex-1 justify-end">
-                  {/* Item 1: Cracker (50/50) */}
-                  <button
-                    type="button"
-                    disabled={items.cracker <= 0 || showExplanation || timeLeft <= 0}
-                    onClick={() => handleUseItem('cracker')}
-                    className={`px-2 py-1 rounded-xl border text-[10px] sm:text-xs font-black flex items-center gap-1 transition-all cursor-pointer ${
-                      items.cracker > 0 && !showExplanation
-                        ? 'bg-amber-100 border-amber-300 text-amber-900 hover:scale-105 active:scale-95 shadow-2xs'
-                        : 'bg-stone-100 border-stone-200 text-stone-400 opacity-60 cursor-not-allowed'
-                    }`}
-                    title="消除 2 個錯誤干擾選項！"
-                  >
-                    <span>🍪</span>
-                    <span>50/50</span>
-                    <span className="bg-amber-200 px-1 rounded-full text-[9px]">{items.cracker}</span>
-                  </button>
-
-                  {/* Item 2: Plum (+10s) */}
-                  <button
-                    type="button"
-                    disabled={items.plum <= 0 || showExplanation || timeLeft <= 0}
-                    onClick={() => handleUseItem('plum')}
-                    className={`px-2 py-1 rounded-xl border text-[10px] sm:text-xs font-black flex items-center gap-1 transition-all cursor-pointer ${
-                      items.plum > 0 && !showExplanation
-                        ? 'bg-rose-100 border-rose-300 text-rose-900 hover:scale-105 active:scale-95 shadow-2xs'
-                        : 'bg-stone-100 border-stone-200 text-stone-400 opacity-60 cursor-not-allowed'
-                    }`}
-                    title="倒數時間立即 +10 秒！"
-                  >
-                    <span>🍋</span>
-                    <span>+10s</span>
-                    <span className="bg-rose-200 px-1 rounded-full text-[9px]">{items.plum}</span>
-                  </button>
-
-                  {/* Item 3: Shield (Immunity) */}
-                  <button
-                    type="button"
-                    disabled={items.shield <= 0 || hasShield}
-                    onClick={() => handleUseItem('shield')}
-                    className={`px-2 py-1 rounded-xl border text-[10px] sm:text-xs font-black flex items-center gap-1 transition-all cursor-pointer ${
-                      items.shield > 0 && !hasShield
-                        ? 'bg-blue-100 border-blue-300 text-blue-900 hover:scale-105 active:scale-95 shadow-2xs'
-                        : hasShield
-                        ? 'bg-emerald-100 border-emerald-400 text-emerald-800'
-                        : 'bg-stone-100 border-stone-200 text-stone-400 opacity-60 cursor-not-allowed'
-                    }`}
-                    title="抵消一次急煞失衡！"
-                  >
-                    <span>🛡️</span>
-                    <span>{hasShield ? '已防護' : '護盾'}</span>
-                    <span className="bg-blue-200 px-1 rounded-full text-[9px]">{items.shield}</span>
-                  </button>
-
-                  {/* Item 4: Socks (Restore balance) */}
-                  <button
-                    type="button"
-                    disabled={items.socks <= 0 || balance >= 100}
-                    onClick={() => handleUseItem('socks')}
-                    className={`px-2 py-1 rounded-xl border text-[10px] sm:text-xs font-black flex items-center gap-1 transition-all cursor-pointer ${
-                      items.socks > 0 && balance < 100
-                        ? 'bg-emerald-100 border-emerald-300 text-emerald-900 hover:scale-105 active:scale-95 shadow-2xs'
-                        : 'bg-stone-100 border-stone-200 text-stone-400 opacity-60 cursor-not-allowed'
-                    }`}
-                    title="平衡值瞬間回滿 100%！"
-                  >
-                    <span>🧦</span>
-                    <span>回血</span>
-                    <span className="bg-emerald-200 px-1 rounded-full text-[9px]">{items.socks}</span>
-                  </button>
+                <div className="flex items-center gap-1.5">
+                  {hasShield && (
+                    <span className="bg-sky-100 text-sky-800 border border-sky-300 px-2 py-0.5 rounded-full text-[10px] font-black animate-pulse flex items-center gap-0.5">
+                      <span>🛡️ 護盾在身</span>
+                    </span>
+                  )}
+                  {isSeated ? (
+                    <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded-full text-[10px] font-black flex items-center gap-0.5">
+                      <span>💺 安心就座</span>
+                    </span>
+                  ) : (
+                    <span className="bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-full text-[10px] font-black flex items-center gap-0.5">
+                      <span>💪 站立守護中</span>
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -1772,7 +1708,7 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
                       {currentQ.explanation}
                     </p>
 
-                    {correctCount < targetWinCount && mistakeCount < MAX_MISTAKES && currentQIndex < SUBWAY_QUESTIONS.length - 1 && (
+                    {mistakeCount < MAX_MISTAKES && currentQIndex < SUBWAY_QUESTIONS.length - 1 && (
                       <div className="flex justify-end pt-1">
                         <button
                           onClick={handleNextQuestion}
@@ -1780,6 +1716,17 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
                         >
                           <span>下一站繼續站穩！▶</span>
                           <span className="hidden sm:inline text-[10px] opacity-80">(按空白鍵)</span>
+                        </button>
+                      </div>
+                    )}
+
+                    {mistakeCount < MAX_MISTAKES && currentQIndex >= SUBWAY_QUESTIONS.length - 1 && (
+                      <div className="flex justify-end pt-1">
+                        <button
+                          onClick={handleTriggerWin}
+                          className="w-full sm:w-auto px-4 py-2 sm:px-5 sm:py-2.5 bg-[#E85D75] hover:bg-[#D44763] text-white rounded-xl text-xs font-black shadow-md cursor-pointer transition-transform active:scale-95 flex items-center justify-center gap-1"
+                        >
+                          <span>🎉 抵達終點站淡水！查看結算報告 ➔</span>
                         </button>
                       </div>
                     )}
@@ -1792,108 +1739,72 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
       )}
 
       {/* =========================================================================
-          MINI-GAME 1: BALANCE QTE MODAL (列車大過彎緊急平衡)
+          HELPFUL NPC SURPRISE ENCOUNTER MODAL (車廂好心人及時相助流程機制)
          ========================================================================= */}
-      {activeMiniGame === 'balance_qte' && (
-        <div className="fixed inset-0 bg-stone-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-[#FFFCF4] border-3 border-[#FFBCBD] rounded-3xl p-6 sm:p-8 max-w-md w-full text-center space-y-4 shadow-2xl">
-            <div className="text-4xl animate-bounce">⚡🚇💪</div>
-            <div className="space-y-1">
-              <span className="bg-red-600 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full">
-                ⚠️ 捷運到站急速過彎！
-              </span>
-              <h3 className="text-lg sm:text-xl font-black text-[#4A3337]">
-                點擊立柱保持平衡！
-              </h3>
-              <p className="text-xs text-[#6B4B52]">
-                離心力急晃！在 <strong>{qteTimeLeft} 秒</strong> 內快速點擊按鈕累積平衡值，成功即可獲得好孕護盾！
-              </p>
+      {activeNpcEvent !== null && (
+        <div className="fixed inset-0 bg-stone-950/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-[#FFFCF4] border-3 border-[#FFBCBD] rounded-3xl p-5 sm:p-7 max-w-lg w-full text-center space-y-4 shadow-2xl overflow-y-auto max-h-[92vh]">
+            <div className="text-4xl sm:text-5xl animate-bounce">
+              {activeNpcEvent.avatar}
             </div>
 
-            {/* QTE Progress Bar */}
             <div className="space-y-1.5">
-              <div className="flex justify-between text-xs font-bold font-mono">
-                <span>穩固進度</span>
-                <span className="text-[#E85D75] font-black">{qteProgress}%</span>
+              <div className="flex items-center justify-center gap-2 flex-wrap">
+                <span className="bg-[#E85D75] text-white text-[10px] sm:text-xs font-black px-3 py-1 rounded-full shadow-xs">
+                  {activeNpcEvent.badgeText}
+                </span>
+                <span className="text-xs font-black text-[#7A5860] bg-[#FFE0E6] px-2 py-0.5 rounded-full border border-[#FFBCBD]/50">
+                  {activeNpcEvent.npcRole}
+                </span>
               </div>
-              <div className="h-5 w-full bg-[#FFE0E6] rounded-full overflow-hidden border border-[#FFBCBD] p-0.5">
-                <div
-                  className="h-full bg-gradient-to-r from-amber-400 to-[#E85D75] rounded-full transition-all duration-100"
-                  style={{ width: `${Math.min(100, qteProgress)}%` }}
-                />
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleQteTap}
-              className="w-full py-4 bg-[#E85D75] hover:bg-[#D44763] active:scale-90 text-white rounded-2xl text-base font-black shadow-lg cursor-pointer transition-all flex items-center justify-center gap-2"
-            >
-              <Zap className="w-5 h-5 animate-pulse" />
-              <span>點我抓穩立柱！（或按空白鍵）</span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* =========================================================================
-          MINI-GAME 2: GRANDMA'S TREASURE BASKET MODAL (阿嬤的百寶菜籃摸彩)
-         ========================================================================= */}
-      {activeMiniGame === 'grandma_basket' && (
-        <div className="fixed inset-0 bg-stone-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-[#FFFCF4] border-3 border-[#FFBCBD] rounded-3xl p-6 sm:p-8 max-w-md w-full text-center space-y-4 shadow-2xl">
-            <div className="text-4xl animate-bounce">👵🧺💖</div>
-            <div className="space-y-1">
-              <span className="bg-[#E85D75] text-white text-[10px] font-black px-2.5 py-0.5 rounded-full">
-                陳阿嬤的愛心百寶菜籃
-              </span>
-              <h3 className="text-lg sm:text-xl font-black text-[#4A3337]">
-                妹子辛苦了，挑一樣好料帶走！
+              <h3 className="text-lg sm:text-xl font-black text-[#4A3337] font-serif-tc">
+                {activeNpcEvent.npcName}
               </h3>
-              <p className="text-xs text-[#6B4B52]">
-                阿嬤剛從菜市場滿載而歸，點擊任一福袋抽取產科實用補給品！
-              </p>
+              <div className="bg-[#FFE0E6]/30 border border-[#FFBCBD]/60 rounded-2xl p-3 text-left">
+                <p className="text-xs sm:text-sm text-[#5C3E43] font-medium leading-relaxed">
+                  {activeNpcEvent.quote}
+                </p>
+              </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => handlePickGrandmaGift('cracker')}
-                className="p-3 bg-[#FFE0E6] hover:bg-[#FFBCBD] rounded-2xl border-2 border-[#FFBCBD] text-center transition-transform hover:scale-105 active:scale-95 cursor-pointer shadow-xs group"
-              >
-                <div className="text-3xl mb-1 group-hover:scale-120 transition-transform">🍪</div>
-                <div className="text-xs font-black text-[#4A3337]">福袋 1</div>
-                <div className="text-[9px] text-[#E85D75] font-bold">消除干擾題</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handlePickGrandmaGift('plum')}
-                className="p-3 bg-[#FFE0E6] hover:bg-[#FFBCBD] rounded-2xl border-2 border-[#FFBCBD] text-center transition-transform hover:scale-105 active:scale-95 cursor-pointer shadow-xs group"
-              >
-                <div className="text-3xl mb-1 group-hover:scale-120 transition-transform">🍋</div>
-                <div className="text-xs font-black text-[#4A3337]">福袋 2</div>
-                <div className="text-[9px] text-[#E85D75] font-bold">延長倒數時間</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handlePickGrandmaGift('socks')}
-                className="p-3 bg-[#FFE0E6] hover:bg-[#FFBCBD] rounded-2xl border-2 border-[#FFBCBD] text-center transition-transform hover:scale-105 active:scale-95 cursor-pointer shadow-xs group"
-              >
-                <div className="text-3xl mb-1 group-hover:scale-120 transition-transform">🧦</div>
-                <div className="text-xs font-black text-[#4A3337]">福袋 3</div>
-                <div className="text-[9px] text-[#E85D75] font-bold">平衡值加滿</div>
-              </button>
+            {/* Options */}
+            <div className="space-y-2.5 pt-1">
+              {activeNpcEvent.options.map((opt, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => handleExecuteNpcHelp(opt)}
+                  className="w-full p-3 sm:p-3.5 bg-gradient-to-r from-rose-50 to-[#FFFCF4] hover:from-[#FFE0E6] hover:to-rose-100 border-2 border-[#FFBCBD] hover:border-[#E85D75] rounded-2xl transition-all hover:scale-[1.01] active:scale-98 shadow-xs cursor-pointer text-left flex items-start gap-3 group"
+                >
+                  <div className="text-2xl sm:text-3xl shrink-0 group-hover:scale-115 transition-transform mt-0.5">
+                    {opt.icon}
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between gap-1 flex-wrap">
+                      <span className="font-black text-xs sm:text-sm text-[#4A3337] group-hover:text-[#E85D75] transition-colors">
+                        {opt.title}
+                      </span>
+                      <span className="text-[9px] font-black text-[#E85D75] bg-white/90 border border-[#FFBCBD] px-1.5 py-0.2 rounded-full shrink-0">
+                        {opt.tag}
+                      </span>
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] text-[#7A5860] mt-0.5 font-medium leading-snug">
+                      {opt.description}
+                    </div>
+                  </div>
+                </button>
+              ))}
             </div>
 
-            <button
-              type="button"
-              onClick={() => setActiveMiniGame(null)}
-              className="text-xs text-[#7A5860] hover:text-[#4A3337] underline pt-2 cursor-pointer font-bold"
-            >
-              稍後再抽，返回答題
-            </button>
+            {activeNpcEvent.id !== 'grand_seat_offering' && (
+              <button
+                type="button"
+                onClick={() => setActiveNpcEvent(null)}
+                className="text-xs text-[#7A5860] hover:text-[#4A3337] underline pt-1 cursor-pointer font-bold"
+              >
+                心領好意，繼續專注答題
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -2113,7 +2024,7 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
               🎉 抵達目的地！乘客感動讓座，{currentMomName}安心入座！
             </h2>
             <p className="text-xs sm:text-sm text-[#6B4B52] max-w-lg mx-auto leading-relaxed font-medium">
-              經歷了忠義站、關渡站、竹圍站、紅樹林站到淡水終點站，{currentMomName}在答對 2 題後雙手抓穩立柱，累積 4 題同學深受感動主動讓座，順利攻破所有產科關卡！
+              經歷了忠義站、關渡站、竹圍站、紅樹林站到淡水終點站，{currentMomName}在顛簸車廂中雙手抓穩立柱，途中受到買菜阿嬤與熱心學弟的及時相助，並在累積答對 18 題後感動全車起立讓座，順利攻破所有產科關卡！
             </p>
           </div>
 
@@ -2184,7 +2095,7 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
           </div>
 
           <div className="p-3 sm:p-4 bg-[#FFFCF4] rounded-2xl border-2 border-[#FFBCBD] text-xs text-[#4A3337] font-bold max-w-lg mx-auto">
-            💡 闖關攻略：平時可點擊阿嬤菜籃摸彩、借高中生筆記、善用錦囊道具；答對 2 題媽咪就會抓穩立柱，答對 4 題同學感動讓座！
+            💡 闖關攻略：車廂顛簸晃動時請抓緊立柱；沿途遇到買菜阿嬤、高中生小明與北捷站務長時，善用他們提供的及時相助；累積答對 18 題即可感動全車迎來終極就座！
           </div>
 
           <div className="pt-2">

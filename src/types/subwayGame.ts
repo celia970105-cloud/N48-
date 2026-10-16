@@ -26,14 +26,22 @@ export interface PlayerProfile {
 
 export type GamePhase = 'welcome' | 'playing' | 'won' | 'lost';
 
-export type GameMode = 'full_tour' | 'quick_challenge' | 'endless';
-
-export interface SubwayItem {
-  id: 'cracker' | 'plum' | 'shield' | 'socks';
-  name: string;
+export interface HelpfulNpcOption {
+  title: string;
+  description: string;
   icon: string;
-  count: number;
-  desc: string;
+  tag: string;
+  effectType: 'heal_time' | 'shield' | 'eliminate_options' | 'restore_balance' | 'grand_seat';
+}
+
+export interface HelpfulNpcEvent {
+  id: string;
+  npcName: string;
+  npcRole: string;
+  avatar: string;
+  quote: string;
+  badgeText: string;
+  options: HelpfulNpcOption[];
 }
 
 export interface SeatDilemmaOutcome {

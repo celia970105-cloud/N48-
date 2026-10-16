@@ -1,4 +1,5 @@
 import express from 'express';
+import http from 'http';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -38,6 +39,7 @@ const upload = multer({
 
 async function startServer() {
   const app = express();
+  const server = http.createServer(app);
 
   // Middleware for JSON
   app.use(express.json());
@@ -194,7 +196,7 @@ async function startServer() {
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        hmr: process.env.DISABLE_HMR !== 'true',
+        hmr: false,
       },
       appType: 'spa',
     });
@@ -226,7 +228,7 @@ async function startServer() {
     }
   }
 
-  app.listen(port, host, () => {
+  server.listen(port, host, () => {
     console.log(`> Server running on http://${host}:${port} (mode: ${isProduction ? 'production' : 'development'})`);
   });
 }

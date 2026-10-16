@@ -3,6 +3,24 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Ignore HMR WebSocket connection errors in iframe environment
+      window.addEventListener('unhandledrejection', function(event) {
+        var reason = event && event.reason;
+        var msg = reason ? (reason.message || String(reason)) : '';
+        var stack = reason && reason.stack ? reason.stack : '';
+        if (msg.indexOf('WebSocket') !== -1 || msg.indexOf('vite:ws') !== -1 || stack.indexOf('@vite/client') !== -1) {
+          event.preventDefault();
+        }
+      });
+      window.addEventListener('error', function(event) {
+        var msg = event ? (event.message || '') : '';
+        var filename = event && event.filename ? event.filename : '';
+        if (msg.indexOf('WebSocket') !== -1 || filename.indexOf('@vite/client') !== -1) {
+          event.preventDefault();
+        }
+      });
+    </script>
     <title>溫暖同行：捷運車廂妊娠體驗與生命教育倡議</title>
     <meta name="description" content="結合妊娠體驗專題報告與捷運車廂互動遊戲，透過模擬捷運通勤站立、重心晃動挑戰、生理護理題庫，深度體會懷孕歷程的辛苦與感動。" />
     <meta property="og:title" content="溫暖同行：捷運車廂妊娠體驗與生命教育倡議" />
