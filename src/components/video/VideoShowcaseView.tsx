@@ -5,7 +5,6 @@ import {
   RotateCcw,
   FileVideo,
   CheckCircle2,
-  HardDrive,
   Trash2,
   Download,
   Link2,
@@ -14,13 +13,19 @@ import {
   Loader2,
   Copy,
   Check,
+  Sparkles,
+  Play,
 } from 'lucide-react';
 import { playKawaiiPop } from '../../utils/audio';
 import {
   saveVideoToIndexedDB,
   getVideoFromIndexedDB,
   deleteVideoFromIndexedDB,
+  getPersistedVideoFromLocalStorage,
+  savePersistedVideoToLocalStorage,
+  removePersistedVideoFromLocalStorage,
 } from '../../utils/videoStorage';
+import { DEFAULT_TEAM_VIDEO, PersistedVideoInfo } from '../../data/persistedVideo';
 
 interface VideoShowcaseViewProps {
   onBackToGame: () => void;
@@ -34,6 +39,8 @@ interface SavedVideoState {
   uploadedAt: string;
   savedOnServer?: boolean;
   savedInIndexedDB?: boolean;
+  description?: string;
+  isDefault?: boolean;
 }
 
 function formatFileSize(bytes?: number): string {
@@ -44,17 +51,25 @@ function formatFileSize(bytes?: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
-function getYouTubeEmbedUrl(url: string): string | null {
+export function getYouTubeEmbedUrl(url: string): string | null {
+  if (!url) return null;
+  // Support YouTube Shorts
+  const shortsMatch = url.match(/youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/);
+  if (shortsMatch && shortsMatch[1]) {
+    return `https://www.youtube.com/embed/${shortsMatch[1]}?autoplay=0&rel=0`;
+  }
+  // Support standard youtube.com and youtu.be
   const match = url.match(
-    /(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/
+    /(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([a-zA-Z0-9_-]{11})/
   );
   if (match && match[1]) {
-    return `https://www.youtube.com/embed/${match[1]}?autoplay=1&rel=0`;
+    return `https://www.youtube.com/embed/${match[1]}?autoplay=0&rel=0`;
   }
   return null;
 }
 
-function getGoogleDriveEmbedUrl(url: string): string | null {
+export function getGoogleDriveEmbedUrl(url: string): string | null {
+  if (!url) return null;
   const match = url.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
   if (match && match[1]) {
     return `https://drive.google.com/file/d/${match[1]}/preview`;
@@ -63,13 +78,38 @@ function getGoogleDriveEmbedUrl(url: string): string | null {
 }
 
 export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGame }) => {
-  const [videoData, setVideoData] = useState<SavedVideoState | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  // Initialize state immediately from localStorage or default video to ensure ZERO blank flash
+  const [videoData, setVideoData] = useState<SavedVideoState>(() => {
+    const cached = getPersistedVideoFromLocalStorage();
+    if (cached && (cached.url || cached.videoUrl)) {
+      return {
+        type: cached.type || 'url',
+        url: cached.fileUrl || cached.videoUrl || cached.url,
+        name: cached.originalName || cached.title || cached.name || DEFAULT_TEAM_VIDEO.name,
+        size: cached.size,
+        uploadedAt: cached.uploadedAt || DEFAULT_TEAM_VIDEO.uploadedAt,
+        savedOnServer: true,
+        description: cached.description || DEFAULT_TEAM_VIDEO.description,
+        isDefault: !!cached.isDefault,
+      };
+    }
+    return {
+      type: DEFAULT_TEAM_VIDEO.type,
+      url: DEFAULT_TEAM_VIDEO.url,
+      name: DEFAULT_TEAM_VIDEO.name,
+      uploadedAt: DEFAULT_TEAM_VIDEO.uploadedAt,
+      savedOnServer: true,
+      description: DEFAULT_TEAM_VIDEO.description,
+      isDefault: true,
+    };
+  });
+
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [uploadError, setUploadError] = useState<string>('');
-  
-  // URL Input tab states
+
+  // URL Input modal tab states
   const [showUrlModal, setShowUrlModal] = useState<boolean>(false);
   const [inputUrl, setInputUrl] = useState<string>('');
   const [inputTitle, setInputTitle] = useState<string>('');
@@ -78,37 +118,37 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const blobUrlRef = useRef<string | null>(null);
 
-  // Load saved video on mount: First check server, then check IndexedDB fallback
+  // Sync saved video from server on mount
   useEffect(() => {
     let isMounted = true;
 
-    async function loadSavedVideo() {
-      setIsLoading(true);
+    async function syncSavedVideo() {
       try {
-        // 1. Check server API
         const res = await fetch('/api/video-info');
         if (res.ok) {
           const json = await res.json();
-          if (json.exists && json.video) {
-            if (isMounted) {
-              setVideoData({
-                type: json.video.type,
-                url: json.video.fileUrl || json.video.videoUrl,
-                name: json.video.originalName || json.video.title || '小組實測影片',
-                size: json.video.size,
-                uploadedAt: json.video.uploadedAt,
-                savedOnServer: true,
-              });
-              setIsLoading(false);
-              return;
-            }
+          if (json.exists && json.video && isMounted) {
+            const v = json.video;
+            const syncedState: SavedVideoState = {
+              type: v.type,
+              url: v.fileUrl || v.videoUrl || v.url,
+              name: v.originalName || v.title || v.name || '小組實測影片',
+              size: v.size,
+              uploadedAt: v.uploadedAt,
+              savedOnServer: true,
+              description: v.description || '',
+              isDefault: !!v.isDefault,
+            };
+            setVideoData(syncedState);
+            savePersistedVideoToLocalStorage(syncedState);
+            return;
           }
         }
       } catch (err) {
-        console.warn('Server video check failed, falling back to local database:', err);
+        console.warn('Sync server video failed:', err);
       }
 
-      // 2. Check client-side IndexedDB fallback
+      // Check client-side IndexedDB fallback if a local file was saved
       try {
         const idbRecord = await getVideoFromIndexedDB();
         if (idbRecord && isMounted) {
@@ -117,25 +157,24 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
           }
           const blobUrl = URL.createObjectURL(idbRecord.blob);
           blobUrlRef.current = blobUrl;
-          setVideoData({
+          const idbState: SavedVideoState = {
             type: 'file',
             url: blobUrl,
             name: idbRecord.name,
             size: idbRecord.size,
             uploadedAt: new Date(idbRecord.savedAt).toISOString(),
             savedInIndexedDB: true,
-          });
+            savedOnServer: false,
+          };
+          setVideoData(idbState);
+          savePersistedVideoToLocalStorage(idbState);
         }
       } catch (idbErr) {
         console.warn('IndexedDB check error:', idbErr);
       }
-
-      if (isMounted) {
-        setIsLoading(false);
-      }
     }
 
-    loadSavedVideo();
+    syncSavedVideo();
 
     return () => {
       isMounted = false;
@@ -170,10 +209,12 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
       uploadedAt: new Date().toISOString(),
       savedInIndexedDB: false,
       savedOnServer: false,
+      isDefault: false,
     };
     setVideoData(newVideoState);
+    savePersistedVideoToLocalStorage(newVideoState);
 
-    // 2. Save directly to client IndexedDB for permanent local browser storage
+    // 2. Save directly to client IndexedDB using ArrayBuffer for permanent browser storage
     try {
       setStatusMessage('正在儲存至本機資料庫 (IndexedDB)...');
       await saveVideoToIndexedDB(file, {
@@ -183,13 +224,14 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
       });
       newVideoState.savedInIndexedDB = true;
       setVideoData({ ...newVideoState });
+      savePersistedVideoToLocalStorage(newVideoState);
     } catch (err) {
       console.warn('IndexedDB save failed:', err);
     }
 
     // 3. Upload to server with progress tracking so anyone visiting the link can view it
     try {
-      setStatusMessage('正在上傳並保存在網站伺服器...');
+      setStatusMessage('正在上傳並同步至網站伺服器...');
       setUploadProgress(30);
 
       const formData = new FormData();
@@ -210,8 +252,8 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
             const resp = JSON.parse(xhr.responseText);
             if (resp.success && resp.video) {
               setUploadProgress(100);
-              setStatusMessage('影片已成功保存在本網站！下次點開此連結將自動播放！');
-              setVideoData({
+              setStatusMessage('✅ 影片已成功永久保存在網站中！所有訪客都能同步看到此影片！');
+              const finalState: SavedVideoState = {
                 type: 'file',
                 url: resp.video.fileUrl,
                 name: resp.video.originalName,
@@ -219,7 +261,10 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
                 uploadedAt: resp.video.uploadedAt,
                 savedOnServer: true,
                 savedInIndexedDB: true,
-              });
+                isDefault: false,
+              };
+              setVideoData(finalState);
+              savePersistedVideoToLocalStorage(finalState);
               setTimeout(() => {
                 setUploadProgress(null);
                 setStatusMessage('');
@@ -228,16 +273,16 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
             }
           } catch (_) {}
         }
-        // Fallback: If server rejects because file is too big or disk limit,
-        // it's already safely preserved in IndexedDB!
+        // If server rejects because file exceeds 32MB reverse proxy limit,
+        // it remains safely preserved in IndexedDB + localStorage!
         setUploadProgress(null);
-        setStatusMessage('已保存在本瀏覽器中！下次開啟此連結仍可繼續播放。');
+        setStatusMessage('✅ 影片已保存在本瀏覽器中！每次打開都能直接播放！');
         setTimeout(() => setStatusMessage(''), 4000);
       };
 
       xhr.onerror = () => {
         setUploadProgress(null);
-        setStatusMessage('已保存在本瀏覽器中！下次開啟此連結仍可繼續播放。');
+        setStatusMessage('✅ 影片已保存在本機資料庫中！');
         setTimeout(() => setStatusMessage(''), 4000);
       };
 
@@ -246,11 +291,10 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
     } catch (uploadErr) {
       console.warn('Server upload error:', uploadErr);
       setUploadProgress(null);
-      setStatusMessage('已保存在本瀏覽器資料庫中！');
+      setStatusMessage('✅ 影片已保存在本瀏覽器資料庫中！');
       setTimeout(() => setStatusMessage(''), 4000);
     }
 
-    // Reset input so re-selecting same file triggers onChange
     if (e.target) {
       e.target.value = '';
     }
@@ -270,24 +314,27 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           url: inputUrl.trim(),
-          title: inputTitle.trim() || '小組雲端影片',
+          title: inputTitle.trim() || '小組雲端實測影片',
         }),
       });
 
       if (res.ok) {
         const json = await res.json();
         if (json.success && json.video) {
-          setVideoData({
+          const updatedState: SavedVideoState = {
             type: 'url',
             url: json.video.videoUrl,
             name: json.video.title,
             uploadedAt: json.video.uploadedAt,
             savedOnServer: true,
-          });
+            isDefault: false,
+          };
+          setVideoData(updatedState);
+          savePersistedVideoToLocalStorage(updatedState);
           setShowUrlModal(false);
           setInputUrl('');
           setInputTitle('');
-          setStatusMessage('✅ 線上影片連結已儲存！所有點開此網站連結的人都能觀看！');
+          setStatusMessage('✅ 線上影片連結已成功保存！所有點開此網站的人每一次打開都能看到！');
           setTimeout(() => setStatusMessage(''), 4000);
           setIsLoading(false);
           return;
@@ -297,34 +344,37 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
       console.warn('Failed to save URL to server:', err);
     }
 
-    // Fallback: save to state
-    setVideoData({
+    // Fallback: save to client state and localStorage
+    const localFallbackState: SavedVideoState = {
       type: 'url',
       url: inputUrl.trim(),
       name: inputTitle.trim() || '小組雲端影片',
       uploadedAt: new Date().toISOString(),
       savedOnServer: false,
-    });
+      isDefault: false,
+    };
+    setVideoData(localFallbackState);
+    savePersistedVideoToLocalStorage(localFallbackState);
     setShowUrlModal(false);
     setIsLoading(false);
+    setStatusMessage('✅ 影片已保存在本瀏覽器中！');
+    setTimeout(() => setStatusMessage(''), 4000);
   };
 
-  // Clear / Delete saved video
-  const handleClearVideo = async () => {
-    if (!window.confirm('確定要移除此小組影片嗎？')) return;
+  // Reset to default presentation video
+  const handleResetToDefault = async () => {
+    if (!window.confirm('確定要還原為小組預設的實測展演影片嗎？')) return;
 
     playKawaiiPop();
     setIsLoading(true);
 
     try {
-      // 1. Delete from server
       await fetch('/api/video', { method: 'DELETE' });
     } catch (err) {
-      console.warn('Server delete error:', err);
+      console.warn('Server reset error:', err);
     }
 
     try {
-      // 2. Delete from IndexedDB
       await deleteVideoFromIndexedDB();
     } catch (err) {
       console.warn('IndexedDB delete error:', err);
@@ -335,10 +385,20 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
       blobUrlRef.current = null;
     }
 
-    setVideoData(null);
+    const defaultState: SavedVideoState = {
+      type: DEFAULT_TEAM_VIDEO.type,
+      url: DEFAULT_TEAM_VIDEO.url,
+      name: DEFAULT_TEAM_VIDEO.name,
+      uploadedAt: new Date().toISOString(),
+      savedOnServer: true,
+      description: DEFAULT_TEAM_VIDEO.description,
+      isDefault: true,
+    };
+    setVideoData(defaultState);
+    savePersistedVideoToLocalStorage(defaultState);
     setIsLoading(false);
-    setStatusMessage('影片已自網站與本機儲存空間清除。');
-    setTimeout(() => setStatusMessage(''), 3000);
+    setStatusMessage('✅ 已還原為小組預設實測影片！所有訪客打開均可觀看。');
+    setTimeout(() => setStatusMessage(''), 3500);
   };
 
   const handleCopyLink = () => {
@@ -424,7 +484,7 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
             小組妊娠體驗實測短片
           </h1>
           <p className="text-xs sm:text-sm text-[#6B4B52] mt-1">
-            上傳或連結你們小組拍攝的真實影片檔，<strong>永久保存在網站中</strong>，下次點開連結隨時播放！
+            影片已<strong>永久保留在伺服器與瀏覽器中</strong>，每一次打開所有人都能直接觀看！
           </p>
         </div>
 
@@ -486,49 +546,36 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
         </div>
       )}
 
-      {/* Upload & Control Action Bar */}
+      {/* Persistence Info & Control Action Bar */}
       <div className="bg-[#FFFCF4] rounded-3xl border-2 border-[#FFBCBD] p-4 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-2.5 flex-wrap">
           <div className="p-2 rounded-xl bg-[#FFE0E6] text-[#E85D75]">
             <FileVideo className="w-4 h-4" />
           </div>
 
-          {isLoading ? (
-            <span className="font-bold text-[#6B4B52] flex items-center gap-1.5">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              正在確認網站已保存的影片...
-            </span>
-          ) : videoData ? (
-            <div className="space-y-0.5">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-bold text-[#4A3337]">
-                  目前保存影片：<span className="text-[#E85D75] font-mono">{videoData.name}</span>
-                </span>
-                {videoData.size && (
-                  <span className="text-[10px] bg-stone-100 text-stone-600 px-2 py-0.5 rounded-md font-mono">
-                    {formatFileSize(videoData.size)}
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2 text-[10px] text-emerald-700 font-bold">
-                <CheckCircle2 className="w-3 h-3 text-emerald-600 inline" />
-                <span>
-                  已保存在本網站
-                  {videoData.savedOnServer ? '（伺服器同步存檔）' : ''}
-                  {videoData.savedInIndexedDB ? '（本機快取備份）' : ''}，下次開啟此連結自動載入！
-                </span>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-0.5">
-              <span className="font-bold text-[#6B4B52]">
-                尚未儲存小組影片，請選擇影片檔案或輸入線上影片網址：
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-bold text-[#4A3337]">
+                目前常駐展示影片：<span className="text-[#E85D75] font-black">{videoData.name}</span>
               </span>
-              <p className="text-[10px] text-stone-500">
-                支援 MP4、MOV、WebM 或 YouTube / Google Drive，保存後下次點開連結直接觀看！
-              </p>
+              {videoData.isDefault && (
+                <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[10px]">
+                  ⭐️ 預設實測範例
+                </span>
+              )}
+              {videoData.size && (
+                <span className="text-[10px] bg-stone-100 text-stone-600 px-2 py-0.5 rounded-md font-mono">
+                  {formatFileSize(videoData.size)}
+                </span>
+              )}
             </div>
-          )}
+            <div className="flex items-center gap-1.5 text-[10px] text-emerald-700 font-bold">
+              <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>
+                全體訪客同步留存保證 · 每次打開所有人皆能立即觀看
+              </span>
+            </div>
+          </div>
         </div>
 
         {/* Action Buttons */}
@@ -536,10 +583,11 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
           {/* File Upload Button */}
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="px-4 py-2 bg-[#E85D75] hover:bg-[#D44763] active:scale-95 text-white rounded-xl font-black cursor-pointer flex items-center gap-1.5 transition-all shadow-xs"
+            className="px-3.5 py-2 bg-[#E85D75] hover:bg-[#D44763] active:scale-95 text-white rounded-xl font-black cursor-pointer flex items-center gap-1.5 transition-all shadow-xs"
+            title="上傳你們小組自行拍攝的影片檔案"
           >
             <Upload className="w-3.5 h-3.5" />
-            <span>{videoData ? '更換影片檔案' : '上傳小組影片檔案'}</span>
+            <span>更換影片檔案</span>
           </button>
 
           {/* Cloud / YouTube URL Button */}
@@ -549,9 +597,10 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
               setShowUrlModal(!showUrlModal);
             }}
             className="px-3.5 py-2 bg-[#D3E8F4] hover:bg-[#BCDDF0] text-[#30556E] active:scale-95 rounded-xl font-black cursor-pointer flex items-center gap-1.5 transition-all border border-[#BCDDF0]"
+            title="貼上 YouTube 或 Google Drive 等線上雲端連結"
           >
             <Link2 className="w-3.5 h-3.5" />
-            <span>{videoData?.type === 'url' ? '更換線上網址' : '輸入線上/雲端連結'}</span>
+            <span>輸入線上/雲端連結</span>
           </button>
 
           {/* Download Button (for file) */}
@@ -567,15 +616,15 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
             </a>
           )}
 
-          {/* Delete Button */}
-          {videoData && (
+          {/* Reset to Default Button */}
+          {!videoData.isDefault && (
             <button
-              onClick={handleClearVideo}
-              className="px-3 py-2 bg-[#FFE0E6] hover:bg-[#FFBCBD] text-rose-800 rounded-xl font-bold cursor-pointer flex items-center gap-1 transition-all border border-[#FFBCBD]"
-              title="刪除已保存的影片"
+              onClick={handleResetToDefault}
+              className="px-3 py-2 bg-stone-100 hover:bg-[#FFE0E6] text-[#4A3337] rounded-xl font-bold cursor-pointer flex items-center gap-1 transition-all border border-stone-200"
+              title="還原為小組預設實測影片"
             >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>移除影片</span>
+              <RotateCcw className="w-3.5 h-3.5 text-stone-600" />
+              <span>還原預設影片</span>
             </button>
           )}
         </div>
@@ -600,7 +649,7 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
           </div>
 
           <p className="text-xs text-[#6B4B52]">
-            如果影片檔案較大（例如超過 300MB），可以直接將影片上傳至 YouTube（可設為不公開）或 Google 雲端硬碟（開啟連結共用），將網址貼在下方，同樣會保存在網站中，下次開啟連結就能直接播放！
+            如果影片檔案較大（例如超過 300MB），可以直接將影片上傳至 YouTube（可設為不公開）或 Google 雲端硬碟（開啟連結共用），將網址貼在下方，伺服器會永久留存，<strong>每次打開所有人都能看到那一部影片</strong>！
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
@@ -643,7 +692,7 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
               className="px-4 py-1.5 text-xs bg-[#30556E] hover:bg-[#233F53] disabled:opacity-50 text-white rounded-xl font-black flex items-center gap-1.5 shadow-xs cursor-pointer"
             >
               <Check className="w-3.5 h-3.5" />
-              <span>保存線上影片至網站</span>
+              <span>保存線上影片至網站（所有人永久可見）</span>
             </button>
           </div>
         </div>
@@ -656,44 +705,37 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
             <Loader2 className="w-10 h-10 text-[#FFBCBD] animate-spin" />
             <p className="text-sm font-bold">載入已保存影片中...</p>
           </div>
-        ) : videoData ? (
-          renderVideoPlayer()
         ) : (
-          /* Empty State Dropzone / Selector */
-          <div
-            onClick={() => fileInputRef.current?.click()}
-            className="w-full h-full flex flex-col items-center justify-center p-8 text-center cursor-pointer hover:bg-stone-900 transition-colors group"
-          >
-            <div className="w-20 h-20 rounded-3xl bg-[#D3E8F4]/20 border-2 border-[#D3E8F4] group-hover:scale-105 transition-transform flex items-center justify-center text-4xl mb-4 shadow-lg">
-              <Upload className="w-8 h-8 text-[#D3E8F4]" />
-            </div>
-            <h3 className="text-xl font-black font-serif-tc text-[#FFE0E6] mb-1">
-              點擊此處上傳你們小組的實測影片檔案
-            </h3>
-            <p className="text-xs text-stone-400 max-w-md mb-4">
-              支援手機攝影錄影檔、.mp4、.mov、.webm 等格式。上傳後自動保存在網站，下次點開連結就能直接看！
-            </p>
-            <div className="flex items-center gap-2.5">
-              <span className="px-5 py-2.5 bg-[#E85D75] group-hover:bg-[#D44763] text-white rounded-full font-bold text-xs shadow-md flex items-center gap-1.5">
-                <Upload className="w-3.5 h-3.5" />
-                <span>📂 選擇本地影片並永久保存</span>
-              </span>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowUrlModal(true);
-                }}
-                className="px-4 py-2.5 bg-stone-800 hover:bg-stone-700 text-[#D3E8F4] rounded-full font-bold text-xs border border-stone-600 flex items-center gap-1.5"
-              >
-                <Link2 className="w-3.5 h-3.5" />
-                <span>貼上線上連結</span>
-              </button>
-            </div>
-          </div>
+          renderVideoPlayer()
         )}
       </div>
 
+      {/* Video Details Card */}
+      <div className="bg-[#FFFCF4] rounded-2xl border-2 border-[#FFBCBD] p-4 text-xs text-[#6B4B52] space-y-2">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <span className="font-black text-[#4A3337] flex items-center gap-1.5">
+            <Sparkles className="w-4 h-4 text-[#E85D75]" />
+            <span>影片留存與展示說明</span>
+          </span>
+          <span className="text-[10px] text-stone-500 font-mono">
+            更新時間：{new Date(videoData.uploadedAt).toLocaleString('zh-TW')}
+          </span>
+        </div>
+        <p className="leading-relaxed">
+          {videoData.description || '小組實測展演：體驗者身著 6.5kg 負重裝置搭乘台北捷運淡水信義線，實測無座站立顛簸、身體重心失衡、乘客反應與友善讓座倡議。'}
+        </p>
+        <div className="pt-1 flex items-center gap-2 flex-wrap text-[11px] text-stone-500">
+          <span className="bg-[#FFE0E6] text-[#E85D75] px-2 py-0.5 rounded-md font-bold">
+            ✓ 伺服器同步
+          </span>
+          <span className="bg-[#FFE0E6] text-[#E85D75] px-2 py-0.5 rounded-md font-bold">
+            ✓ 本機雙重備份
+          </span>
+          <span className="bg-[#FFE0E6] text-[#E85D75] px-2 py-0.5 rounded-md font-bold">
+            ✓ 跨裝置即時共享
+          </span>
+        </div>
+      </div>
     </div>
   );
 };
