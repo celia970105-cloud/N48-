@@ -52,13 +52,14 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
   return (
     <>
       <header className="sticky top-0 z-40 bg-[#FFE0E6]/95 backdrop-blur-md border-b-2 border-[#FFBCBD]">
-        <div className="max-w-[1700px] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+        <div className="w-full max-w-[1700px] mx-auto px-2.5 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between gap-2 overflow-hidden">
           {/* Zone 1: Single text element wordmark */}
           <button
             onClick={() => handleNavClick('subway')}
-            className="text-lg font-black tracking-tight text-[#4A3337] font-serif-tc text-left hover:text-[#E85D75] transition-colors cursor-pointer flex items-center gap-1.5"
+            className="text-sm sm:text-lg font-black tracking-tight text-[#4A3337] font-serif-tc text-left hover:text-[#E85D75] transition-colors cursor-pointer flex items-center gap-1 min-w-0 shrink truncate"
           >
-            <span>🚇 站穩啦媽咪 · 捷運大冒險</span>
+            <span className="truncate">🚇 站穩啦媽咪</span>
+            <span className="hidden sm:inline text-xs font-normal text-[#7A5860]">· 捷運大冒險</span>
           </button>
 
           {/* Zone 2: clean text navigation links */}
@@ -89,21 +90,21 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
           </nav>
 
           {/* Zone 3: Actions */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               onClick={handleOpenCodeModal}
-              className="px-3 py-2 text-xs font-black text-[#5C3E43] bg-white/90 hover:bg-white border border-[#FFBCBD] rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
-              title="查看與下載全站完整代碼（未分開單一檔與ZIP）"
+              className="px-2.5 py-1.5 sm:px-3 sm:py-2 text-xs font-black text-[#5C3E43] bg-white/90 hover:bg-white border border-[#FFBCBD] rounded-xl shadow-xs transition-all flex items-center gap-1 cursor-pointer"
+              title="查看與下載全站完整代碼"
             >
               <Code className="w-3.5 h-3.5 text-[#E85D75]" />
-              <span className="hidden sm:inline">完整代碼</span>
+              <span className="text-[11px] sm:text-xs">代碼</span>
             </button>
 
             <button
               onClick={() => handleNavClick(activeTab === 'subway' ? 'video' : 'subway')}
-              className="px-4 py-2 text-xs font-black text-white bg-[#E85D75] hover:bg-[#D44763] rounded-xl shadow-xs transition-transform active:scale-95 whitespace-nowrap cursor-pointer"
+              className="px-2.5 py-1.5 sm:px-4 sm:py-2 text-xs font-black text-white bg-[#E85D75] hover:bg-[#D44763] rounded-xl shadow-xs transition-transform active:scale-95 whitespace-nowrap cursor-pointer flex items-center gap-1"
             >
-              {activeTab === 'subway' ? '🎬 觀看小組影片' : '🎮 玩捷運答題遊戲'}
+              <span>{activeTab === 'subway' ? '🎬 小組影片' : '🎮 答題遊戲'}</span>
             </button>
           </div>
         </div>

@@ -49,14 +49,11 @@ async function startServer() {
 
   const persistentJsonPath = path.resolve(__dirname, 'src/data/persistedVideo.json');
 
-  const DEFAULT_VIDEO_RECORD = {
-    type: 'url',
-    videoUrl: 'https://www.youtube.com/watch?v=_HHZWmEm9K4',
-    title: '【小組實測影片】台北捷運孕婦負重體驗與讓座實測紀錄',
-    description: '體驗者配戴 6.5kg 負重裝置搭乘台北捷運淡水信義線，實測車廂顛簸站立、乘客發現與友善讓座互動全紀錄。',
-    uploadedAt: '2026-10-17T08:00:00.000Z',
-    isDefault: true,
-  };
+  function isOldNews(d: any): boolean {
+    if (!d) return false;
+    const s = JSON.stringify(d);
+    return s.includes('_HHZWmEm9K4') || s.includes('TVBS') || s.includes('新聞') || s.includes('挺肚搭捷運');
+  }
 
   function getPersistedVideo() {
     // 1. First check uploadsDir/video-info.json
@@ -64,12 +61,14 @@ async function startServer() {
       if (fs.existsSync(videoInfoFilePath)) {
         const raw = fs.readFileSync(videoInfoFilePath, 'utf-8');
         const data = JSON.parse(raw);
-        if (data.type === 'file' && data.filename) {
+        if (isOldNews(data)) {
+          fs.unlinkSync(videoInfoFilePath);
+        } else if (data && data.type === 'file' && data.filename) {
           const filePath = path.join(uploadsDir, data.filename);
           if (fs.existsSync(filePath)) {
             return data;
           }
-        } else if (data.type === 'url' && data.videoUrl) {
+        } else if (data && data.type === 'url' && data.videoUrl) {
           return data;
         }
       }
@@ -82,13 +81,15 @@ async function startServer() {
       if (fs.existsSync(persistentJsonPath)) {
         const raw = fs.readFileSync(persistentJsonPath, 'utf-8');
         const data = JSON.parse(raw);
-        if (data.type === 'url' && (data.videoUrl || data.url)) {
+        if (isOldNews(data)) {
+          return null;
+        } else if (data && data.type === 'url' && (data.videoUrl || data.url)) {
           return {
             ...data,
             videoUrl: data.videoUrl || data.url,
             title: data.title || data.name || '小組實測影片',
           };
-        } else if (data.type === 'file' && data.fileUrl) {
+        } else if (data && data.type === 'file' && data.fileUrl) {
           return data;
         }
       }
@@ -96,8 +97,7 @@ async function startServer() {
       console.warn('Error reading persistentJsonPath:', e);
     }
 
-    // 3. Fallback to default
-    return DEFAULT_VIDEO_RECORD;
+    return null;
   }
 
   function savePersistedVideo(videoData: any) {
@@ -115,14 +115,17 @@ async function startServer() {
 
   // --- API Routes ---
 
-  // 1. Get current saved video info (ALWAYS returns exists: true and a valid video)
+  // 1. Get current saved video info
   app.get('/api/video-info', (_req, res) => {
     try {
       const video = getPersistedVideo();
-      return res.json({ exists: true, video });
+      if (video) {
+        return res.json({ exists: true, video });
+      }
+      return res.json({ exists: false });
     } catch (err) {
       console.error('Error in /api/video-info:', err);
-      return res.json({ exists: true, video: DEFAULT_VIDEO_RECORD });
+      return res.json({ exists: false });
     }
   });
 
@@ -203,30 +206,34 @@ async function startServer() {
     }
   });
 
-  // 4. Delete saved video / Reset to default presentation video
+  // 4. Delete saved video
   app.delete('/api/video', (_req, res) => {
     try {
       if (fs.existsSync(videoInfoFilePath)) {
         try {
           const data = JSON.parse(fs.readFileSync(videoInfoFilePath, 'utf-8'));
-          if (data.type === 'file' && data.filename) {
+          if (data && data.type === 'file' && data.filename) {
             const filePath = path.join(uploadsDir, data.filename);
             if (fs.existsSync(filePath)) {
               fs.unlinkSync(filePath);
             }
           }
         } catch (_) {}
+        try {
+          fs.unlinkSync(videoInfoFilePath);
+        } catch (_) {}
       }
 
-      savePersistedVideo(DEFAULT_VIDEO_RECORD);
+      try {
+        fs.writeFileSync(persistentJsonPath, JSON.stringify({ type: null }, null, 2), 'utf-8');
+      } catch (_) {}
 
       return res.json({
         success: true,
-        message: '已成功還原為小組預設實測展演影片！',
-        video: DEFAULT_VIDEO_RECORD,
+        message: '影片已移除',
       });
     } catch (err) {
-      console.error('Error resetting video:', err);
+      console.error('Error deleting video:', err);
       return res.status(500).json({ success: false, error: (err as Error).message });
     }
   });

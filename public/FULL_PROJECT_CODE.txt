@@ -1,12 +1,13 @@
 ================================================================================
-站穩啦媽咪！捷運車廂妊娠體驗與產科考驗 - 完整原始碼檔案庫
+【站穩啦媽咪】完整專案代碼包 (Full Project Source Code)
+包含捷運車廂妊娠體驗 10 題產科問答闖關、好心人及時相助事件、小組實測影片展演與持久化儲存系統
 ================================================================================
 
 
 
-========================================
-FILE: package.json
-========================================
+================================================================================
+// FILE: package.json
+================================================================================
 
 {
   "name": "react-example",
@@ -51,10 +52,9 @@ FILE: package.json
 }
 
 
-
-========================================
-FILE: tsconfig.json
-========================================
+================================================================================
+// FILE: tsconfig.json
+================================================================================
 
 {
   "compilerOptions": {
@@ -85,10 +85,9 @@ FILE: tsconfig.json
 }
 
 
-
-========================================
-FILE: vite.config.ts
-========================================
+================================================================================
+// FILE: vite.config.ts
+================================================================================
 
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
@@ -114,10 +113,9 @@ export default defineConfig(() => {
 });
 
 
-
-========================================
-FILE: index.html
-========================================
+================================================================================
+// FILE: index.html
+================================================================================
 
 <!doctype html>
 <html lang="zh-TW">
@@ -160,10 +158,9 @@ FILE: index.html
 
 
 
-
-========================================
-FILE: metadata.json
-========================================
+================================================================================
+// FILE: metadata.json
+================================================================================
 
 {
   "name": "溫暖同行：妊娠體驗互動專題與日常挑戰模擬器",
@@ -173,10 +170,9 @@ FILE: metadata.json
 }
 
 
-
-========================================
-FILE: server.ts
-========================================
+================================================================================
+// FILE: server.ts
+================================================================================
 
 import express from 'express';
 import http from 'http';
@@ -229,14 +225,11 @@ async function startServer() {
 
   const persistentJsonPath = path.resolve(__dirname, 'src/data/persistedVideo.json');
 
-  const DEFAULT_VIDEO_RECORD = {
-    type: 'url',
-    videoUrl: 'https://www.youtube.com/watch?v=_HHZWmEm9K4',
-    title: '【小組實測影片】台北捷運孕婦負重體驗與讓座實測紀錄',
-    description: '體驗者配戴 6.5kg 負重裝置搭乘台北捷運淡水信義線，實測車廂顛簸站立、乘客發現與友善讓座互動全紀錄。',
-    uploadedAt: '2026-10-17T08:00:00.000Z',
-    isDefault: true,
-  };
+  function isOldNews(d: any): boolean {
+    if (!d) return false;
+    const s = JSON.stringify(d);
+    return s.includes('_HHZWmEm9K4') || s.includes('TVBS') || s.includes('新聞') || s.includes('挺肚搭捷運');
+  }
 
   function getPersistedVideo() {
     // 1. First check uploadsDir/video-info.json
@@ -244,12 +237,14 @@ async function startServer() {
       if (fs.existsSync(videoInfoFilePath)) {
         const raw = fs.readFileSync(videoInfoFilePath, 'utf-8');
         const data = JSON.parse(raw);
-        if (data.type === 'file' && data.filename) {
+        if (isOldNews(data)) {
+          fs.unlinkSync(videoInfoFilePath);
+        } else if (data && data.type === 'file' && data.filename) {
           const filePath = path.join(uploadsDir, data.filename);
           if (fs.existsSync(filePath)) {
             return data;
           }
-        } else if (data.type === 'url' && data.videoUrl) {
+        } else if (data && data.type === 'url' && data.videoUrl) {
           return data;
         }
       }
@@ -262,13 +257,15 @@ async function startServer() {
       if (fs.existsSync(persistentJsonPath)) {
         const raw = fs.readFileSync(persistentJsonPath, 'utf-8');
         const data = JSON.parse(raw);
-        if (data.type === 'url' && (data.videoUrl || data.url)) {
+        if (isOldNews(data)) {
+          return null;
+        } else if (data && data.type === 'url' && (data.videoUrl || data.url)) {
           return {
             ...data,
             videoUrl: data.videoUrl || data.url,
             title: data.title || data.name || '小組實測影片',
           };
-        } else if (data.type === 'file' && data.fileUrl) {
+        } else if (data && data.type === 'file' && data.fileUrl) {
           return data;
         }
       }
@@ -276,8 +273,7 @@ async function startServer() {
       console.warn('Error reading persistentJsonPath:', e);
     }
 
-    // 3. Fallback to default
-    return DEFAULT_VIDEO_RECORD;
+    return null;
   }
 
   function savePersistedVideo(videoData: any) {
@@ -295,14 +291,17 @@ async function startServer() {
 
   // --- API Routes ---
 
-  // 1. Get current saved video info (ALWAYS returns exists: true and a valid video)
+  // 1. Get current saved video info
   app.get('/api/video-info', (_req, res) => {
     try {
       const video = getPersistedVideo();
-      return res.json({ exists: true, video });
+      if (video) {
+        return res.json({ exists: true, video });
+      }
+      return res.json({ exists: false });
     } catch (err) {
       console.error('Error in /api/video-info:', err);
-      return res.json({ exists: true, video: DEFAULT_VIDEO_RECORD });
+      return res.json({ exists: false });
     }
   });
 
@@ -383,30 +382,34 @@ async function startServer() {
     }
   });
 
-  // 4. Delete saved video / Reset to default presentation video
+  // 4. Delete saved video
   app.delete('/api/video', (_req, res) => {
     try {
       if (fs.existsSync(videoInfoFilePath)) {
         try {
           const data = JSON.parse(fs.readFileSync(videoInfoFilePath, 'utf-8'));
-          if (data.type === 'file' && data.filename) {
+          if (data && data.type === 'file' && data.filename) {
             const filePath = path.join(uploadsDir, data.filename);
             if (fs.existsSync(filePath)) {
               fs.unlinkSync(filePath);
             }
           }
         } catch (_) {}
+        try {
+          fs.unlinkSync(videoInfoFilePath);
+        } catch (_) {}
       }
 
-      savePersistedVideo(DEFAULT_VIDEO_RECORD);
+      try {
+        fs.writeFileSync(persistentJsonPath, JSON.stringify({ type: null }, null, 2), 'utf-8');
+      } catch (_) {}
 
       return res.json({
         success: true,
-        message: '已成功還原為小組預設實測展演影片！',
-        video: DEFAULT_VIDEO_RECORD,
+        message: '影片已移除',
       });
     } catch (err) {
-      console.error('Error resetting video:', err);
+      console.error('Error deleting video:', err);
       return res.status(500).json({ success: false, error: (err as Error).message });
     }
   });
@@ -482,10 +485,9 @@ startServer().catch((err) => {
 });
 
 
-
-========================================
-FILE: src/main.tsx
-========================================
+================================================================================
+// FILE: src/main.tsx
+================================================================================
 
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
@@ -494,10 +496,9 @@ import './index.css';
 createRoot(document.getElementById('root')!).render(<App />);
 
 
-
-========================================
-FILE: src/App.tsx
-========================================
+================================================================================
+// FILE: src/App.tsx
+================================================================================
 
 /**
  * @license
@@ -518,14 +519,14 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#FFFCF4] text-[#4A3337]">
+    <div className="min-h-screen flex flex-col bg-[#FFFCF4] text-[#4A3337] w-full max-w-full overflow-x-hidden">
       <Navbar
         activeTab={activeTab}
         onTabChange={setActiveTab}
         onPrint={handlePrint}
       />
 
-      <main className="flex-1 w-full">
+      <main className="flex-1 w-full max-w-full overflow-x-hidden">
         {activeTab === 'subway' && (
           <SubwayGameView
             onSwitchToVideo={() => setActiveTab('video')}
@@ -571,10 +572,9 @@ export default function App() {
 
 
 
-
-========================================
-FILE: src/index.css
-========================================
+================================================================================
+// FILE: src/index.css
+================================================================================
 
 @import "tailwindcss";
 
@@ -772,72 +772,9 @@ FILE: src/index.css
 }
 
 
-
-========================================
-FILE: src/types/subwayGame.ts
-========================================
-
-export interface Question {
-  id: number;
-  question: string;
-  options: string[];
-  correctIndex: number;
-  explanation: string;
-  tier?: 'basic' | 'intermediate' | 'expert';
-  levelLabel?: string;
-  stationName?: string;
-}
-
-export interface Passenger {
-  id: number;
-  name: string;
-  avatar: string;
-  type: 'kind' | 'ignoring_phone' | 'fake_sleeping';
-  dialogue: string;
-  isOfferedSeat: boolean;
-}
-
-export interface PlayerProfile {
-  name: string;
-  badgeStyle: 'pink_heart' | 'dino_egg' | 'watermelon';
-  avatar: string;
-}
-
-export type GamePhase = 'welcome' | 'playing' | 'won' | 'lost';
-
-export interface HelpfulNpcOption {
-  title: string;
-  description: string;
-  icon: string;
-  tag: string;
-  effectType: 'heal_time' | 'shield' | 'eliminate_options' | 'restore_balance' | 'grand_seat';
-}
-
-export interface HelpfulNpcEvent {
-  id: string;
-  npcName: string;
-  npcRole: string;
-  avatar: string;
-  quote: string;
-  badgeText: string;
-  options: HelpfulNpcOption[];
-}
-
-export interface SeatDilemmaOutcome {
-  choice: 'self' | 'elder' | 'collaborate' | 'timeout';
-  title: string;
-  story: string;
-  moral: string;
-  rewardText: string;
-  badge: string;
-  icon: string;
-}
-
-
-
-========================================
-FILE: src/types/pregnancy.ts
-========================================
+================================================================================
+// FILE: src/types/pregnancy.ts
+================================================================================
 
 export type NavigationTab = 'subway' | 'video';
 
@@ -908,29 +845,89 @@ export interface StudentReportData {
 }
 
 
+================================================================================
+// FILE: src/types/subwayGame.ts
+================================================================================
 
-========================================
-FILE: src/data/subwayQuestions.ts
-========================================
+export interface Question {
+  id: number;
+  question: string;
+  options: string[];
+  correctIndex: number;
+  explanation: string;
+  tier?: 'basic' | 'intermediate' | 'expert';
+  levelLabel?: string;
+  stationName?: string;
+}
+
+export interface Passenger {
+  id: number;
+  name: string;
+  avatar: string;
+  type: 'kind' | 'ignoring_phone' | 'fake_sleeping';
+  dialogue: string;
+  isOfferedSeat: boolean;
+}
+
+export interface PlayerProfile {
+  name: string;
+  badgeStyle: 'pink_heart' | 'dino_egg' | 'watermelon';
+  avatar: string;
+}
+
+export type GamePhase = 'welcome' | 'playing' | 'won' | 'lost';
+
+export interface HelpfulNpcOption {
+  title: string;
+  description: string;
+  icon: string;
+  tag: string;
+  effectType: 'heal_time' | 'shield' | 'eliminate_options' | 'restore_balance' | 'grand_seat';
+}
+
+export interface HelpfulNpcEvent {
+  id: string;
+  npcName: string;
+  npcRole: string;
+  avatar: string;
+  quote: string;
+  badgeText: string;
+  options: HelpfulNpcOption[];
+}
+
+export interface SeatDilemmaOutcome {
+  choice: 'self' | 'elder' | 'collaborate' | 'timeout';
+  title: string;
+  story: string;
+  moral: string;
+  rewardText: string;
+  badge: string;
+  icon: string;
+}
+
+
+================================================================================
+// FILE: src/data/subwayQuestions.ts
+================================================================================
 
 import { Question } from '../types/subwayGame';
 
 export const SUBWAY_QUESTIONS: Question[] = [
-  // ==================== 第一站 · 忠義站 (R24) · 孕早期適應與通勤守護篇 (Q1 ~ Q5) ====================
+  // ==================== 第一站 · 忠義站 (R24) · 孕早期適應與通勤守護篇 (Q1 ~ Q2) ====================
   {
     id: 1,
     tier: 'basic',
     stationName: '忠義站 · R24',
     levelLabel: '初階 · 孕期通勤守護',
-    question: '【車廂突發眩暈】媽咪在捷運車廂久站突感頭暈眼前發黑，主因是膨大子宮壓迫何處？護理第一時間應如何協助？',
+    question: '【車廂突發眩暈】媽咪在捷運車廂久站突感頭暈眼前發黑，主因是膨大子宮壓迫何處？在「捷運車廂內無法平躺」的情境下，第一時間應如何正確協助？',
     options: [
-      '壓迫頸動脈；應立刻讓媽咪抬頭大步快走以促進回血',
-      '壓迫下腔靜脈；應立即坐下放低頭部，採左側臥休息',
-      '壓迫肺動脈；應立即仰臥平躺並將雙手向上高舉過頭',
-      '壓迫腹主動脈；應立即給予大量高濃度糖水並大力搖晃'
+      '壓迫頸動脈；應立刻讓媽咪抬頭大步快走以促進血液循環',
+      '壓迫下腔靜脈；在車廂無法平躺時，應立即攙扶坐下（或就地蹲低）、身體前傾將頭部放低至膝蓋處以促腦部灌流，解開領口並深呼吸',
+      '壓迫肺動脈；應要求全車乘客把媽咪倒立懸掛在車廂拉環上以促血液回流',
+      '壓迫腹主動脈；應立即給予大量高濃度熱含糖飲料並用力搖晃拍打臉頰'
     ],
     correctIndex: 1, // B
-    explanation: '【課本 CH05 p200-201 昏暈及低血壓】子宮在孕晚期或久站時易壓迫下腔靜脈，導致回心血量下降；護理處置應立即坐下或躺下將頭放低、人中加壓 60 秒，側臥姿勢以左側臥優於右側臥！'
+    explanation: '【產科護理 CH05 孕期通勤眩暈處置】久站時膨大子宮壓迫「下腔靜脈（IVC）」，使回心血量下降導致腦部缺血昏暈。符合捷運實務情境：因車廂公共場所無法就地躺下採左側臥，第一時間應立刻攙扶就座（若無空位則立即就地蹲低），身體前傾將頭部放低至雙膝間促進腦部血流灌注，解開領口束縛，深呼吸待症狀緩解！'
   },
   {
     id: 2,
@@ -947,55 +944,10 @@ export const SUBWAY_QUESTIONS: Question[] = [
     correctIndex: 0, // A
     explanation: '【課本 CH05 p198 晨吐處置】晨吐主要與 hCG 及黃體素增加有關。護理建議少量多餐預防空胃、以高蛋白或綜合碳水化合物為主、起床前吃乾醣類（乾蘇打餅）、液體與固體食物分開吃、補充維生素 B6！'
   },
+
+  // ==================== 第二站 · 關渡站 (R25) · 孕中期生理調適與骨盆照護篇 (Q3 ~ Q4) ====================
   {
     id: 3,
-    tier: 'basic',
-    stationName: '忠義站 · R24',
-    levelLabel: '初階 · 急救應變技巧',
-    question: '【車廂突發腿抽筋】在車廂站立時小腿腓腸肌突然劇烈抽筋，此時最正確的「第一時間急救處置」是？',
-    options: [
-      '立刻向下壓緊腳尖呈芭蕾舞姿，並持續敲打腳踝',
-      '立刻在車廂內單腳用力連續跳躍三十下',
-      '立刻伸直膝部，將足背用力向上屈曲（背屈牽拉腓腸肌）',
-      '強行忍痛快速旋轉腳踝以扭轉神經走向'
-    ],
-    correctIndex: 2, // C
-    explanation: '【課本 CH05 p204 腳抽筋處置】腳抽筋主因血漿鈣少磷多及神經受壓迫，急救應立刻伸直腳、膝部平直、將足背向上屈曲（背屈牽拉腓腸肌），並可配合熱敷按摩！'
-  },
-  {
-    id: 4,
-    tier: 'basic',
-    stationName: '忠義站 · R24',
-    levelLabel: '初階 · 循環與水腫預防',
-    question: '【靜脈曲張與水腫預防】為了改善下肢靜脈瓣膜負擔、預防下肢靜脈曲張，關於「穿著支持性彈性襪」的衛教何者正確？',
-    options: [
-      '應在晚上睡覺時整夜穿著，白天下床站立時則脫下',
-      '選擇長度只到小腿肚的緊繃半統襪，以加壓下肢',
-      '久站疲倦時應交叉雙腿翹二郎腿以阻斷靜脈血液',
-      '應在早晨「下床起床前」即穿好，並避免穿著半統襪'
-    ],
-    correctIndex: 3, // D
-    explanation: '【課本 CH05 p201 靜脈曲張防治】穿著彈性襪應在早晨「起床前」即穿上以防靜脈受壓壓縮；應避免穿著會阻斷血液回流的半統襪或緊身吊襪帶，平時多抬高雙腿且避免翹腳！'
-  },
-  {
-    id: 5,
-    tier: 'basic',
-    stationName: '忠義站 · R24',
-    levelLabel: '初階 · 生理變化照護',
-    question: '【孕期乳房脹痛照護】懷孕受雌性素與黃體素影響乳房充血脹痛，下列護理衛教哪一項是正確的？',
-    options: [
-      '每天使用強效殺菌肥皂用力刷洗乳頭以保持絕對無菌',
-      '穿著寬肩帶胸罩支托，日常以清水清潔即可，避免過度刺激乳頭',
-      '洗澡時應用力揉捏擠壓乳頭，以提早疏通所有乳腺',
-      '穿著無鋼圈極小號緊繃內衣，強力壓迫乳房以抑制脹大'
-    ],
-    correctIndex: 1, // B
-    explanation: '【課本 CH05 p199 乳房脹痛護理】應穿著寬肩帶胸罩避免壓迫；以清水清洗即可，避免過度使用肥皂造成乾燥；並應避免過度刺激乳頭，以免反射性引發子宮收縮！'
-  },
-
-  // ==================== 第二站 · 關渡站 (R25) · 孕中期生理調適與骨盆照護篇 (Q6 ~ Q10) ====================
-  {
-    id: 6,
     tier: 'intermediate',
     stationName: '關渡站 · R25',
     levelLabel: '進階 · 骨盆韌帶機轉',
@@ -1010,69 +962,24 @@ export const SUBWAY_QUESTIONS: Question[] = [
     explanation: '【課本 CH05 p201-202 圓韌帶痛】第二期子宮快速長大，圓韌帶拉長伸展引起觸痛或銳痛。護理應避免過度伸展或突然扭轉、熱敷休息；若疼痛持續嚴重則須就醫鑑別早產或闌尾炎。'
   },
   {
-    id: 7,
-    tier: 'intermediate',
+    id: 4,
+    tier: 'basic',
     stationName: '關渡站 · R25',
-    levelLabel: '進階 · 消化用藥安全',
-    question: '【胃灼熱與制酸劑用藥】妊娠第三期常有胃灼熱感（Heartburn，俗稱火燒心），若需服用制酸劑，何者符合課本用藥原則？',
+    levelLabel: '初階 · 循環與水腫預防',
+    question: '【靜脈曲張與水腫預防】為了改善下肢靜脈瓣膜負擔、預防下肢靜脈曲張，關於「穿著支持性彈性襪」的衛教何者正確？',
     options: [
-      '應大量服用含高鈉重碳酸鈉胃乳片，飯後立刻平躺睡覺',
-      '可隨意服用含高劑量阿斯匹靈之止痛發泡錠以消炎止痛',
-      '可使用含「氫氧化鋁」之制酸劑，嚴格禁止使用含阿斯匹靈或高鈉制酸劑',
-      '每餐進食時應大量喝熱湯灌水，並搭配麻辣重口味以毒攻毒'
-    ],
-    correctIndex: 2, // C
-    explanation: '【課本 CH05 p203 胃灼熱護理】黃體素使胃活動力降低、賁門括約肌放鬆致胃酸逆流。護理應少量多餐、避免進食後立刻躺下；可用含氫氧化鋁之制酸劑，不應使用含阿斯匹靈或高鈉制酸劑！'
-  },
-  {
-    id: 8,
-    tier: 'intermediate',
-    stationName: '關渡站 · R25',
-    levelLabel: '進階 · 感染預防衛生',
-    question: '【陰道分泌物與感染防護】懷孕期陰道分泌物增加且呈酸性，下列何種個人衛生習慣「最容易造成毒性休克症候群（TSS）或感染」，應嚴格禁止？',
-    options: [
-      '洗澡時採用站立淋浴，避免坐入公共浴缸泡澡',
-      '穿著吸汗透氣之純棉內褲並勤加換洗',
-      '如廁後由前往後擦拭，保持外陰部乾爽',
-      '使用內置型衛生棉條或經常進行陰道深處灌洗'
+      '應在晚上睡覺時整夜穿著，白天下床站立時則脫下',
+      '選擇長度只到小腿肚的緊繃半統襪，以加壓下肢',
+      '久站疲倦時應交叉雙腿翹二郎腿以阻斷靜脈血液',
+      '應在早晨「下床起床前」即穿好，並避免穿著半統襪'
     ],
     correctIndex: 3, // D
-    explanation: '【課本 CH05 p200 陰道分泌物增加護理】孕期應採淋浴、不做陰道灌洗；特別警告「不使用衛生棉條」，以防金黃色葡萄球菌滋生引起毒性休克症候群（TSS）！'
-  },
-  {
-    id: 9,
-    tier: 'intermediate',
-    stationName: '關渡站 · R25',
-    levelLabel: '進階 · 胸腔與呼吸力學',
-    question: '【呼吸改變與腹輕感】懷孕第三期因膨大子宮將橫膈膜上頂約 4 公分，孕婦呼吸方式通常會發生何種適應性轉變？何時會感到短暫緩解？',
-    options: [
-      '由胸式呼吸轉變為完全閉氣；直到分娩前一週都不會有任何感覺',
-      '由腹式呼吸轉變為「胸式呼吸」；直到胎頭下降產生「腹輕感（Lightening）」時緩解',
-      '由肺部呼吸轉為皮膚呼吸；分娩時肋骨會向內收縮變小',
-      '呼吸容量增加十倍；直到嬰兒誕生後呼吸才會恢復正常'
-    ],
-    correctIndex: 1, // B
-    explanation: '【課本 CH05 p205 呼吸困難】子宮向上推擠橫膈膜約 4cm，使呼吸方式由腹式轉為胸式呼吸。當妊娠末期胎兒先露部位下降入骨盆腔（產生「腹輕感 Lightening」），胸腔空間回升，呼吸短促便獲得緩解！'
-  },
-  {
-    id: 10,
-    tier: 'intermediate',
-    stationName: '關渡站 · R25',
-    levelLabel: '進階 · 孕產生活禁忌',
-    question: '【環境生活與化妝禁忌】護理學指出，婦女若計畫懷孕或已懷孕，應至少提前一個月以上停用下列何種容易造成「胎兒嚴重畸形」的外用與口服成分？',
-    options: [
-      'A 酸（Retinoids）及高濃度化學換膚',
-      '物理性二氧化鈦防曬乳',
-      '純天然植物性潤唇膏',
-      '溫和中性胺基酸洗面乳'
-    ],
-    correctIndex: 0, // A
-    explanation: '【課本 CH05 p208 化妝與護膚】A 酸具強烈致畸胎毒性！醫學與護理強烈建議：想懷孕者應停止使用 A 酸一個月以上，孕期亦應避免染燙髮、去光水與高濃度化學換膚！'
+    explanation: '【課本 CH05 p201 靜脈曲張防治】穿著彈性襪應在早晨「起床前」即穿上以防靜脈受壓壓縮；應避免穿著會阻斷血液回流的半統襪或緊身吊襪帶，平時多抬高雙腿且避免翹腳！'
   },
 
-  // ==================== 第三站 · 竹圍站 (R26) · 血液生理與胎動營養篇 (Q11 ~ Q15) ====================
+  // ==================== 第三站 · 竹圍站 (R26) · 血液生理與胎動營養篇 (Q5 ~ Q6) ====================
   {
-    id: 11,
+    id: 5,
     tier: 'intermediate',
     stationName: '竹圍站 · R26',
     levelLabel: '進階 · 血液學生理機轉',
@@ -1087,7 +994,7 @@ export const SUBWAY_QUESTIONS: Question[] = [
     explanation: '【課本 CH03 p102-103 血液系統變化】妊娠期血漿容積增加（45~50%）遠大於紅血球容積增加（20~30%），血液被稀釋，血比容由 40% 降至約 33~37%，稱為「生理性貧血」或假性貧血！'
   },
   {
-    id: 12,
+    id: 6,
     tier: 'intermediate',
     stationName: '竹圍站 · R26',
     levelLabel: '進階 · 胎兒健康監測',
@@ -1101,55 +1008,10 @@ export const SUBWAY_QUESTIONS: Question[] = [
     correctIndex: 2, // C
     explanation: '【課本 CH05 p210 危險徵象與胎動】每日胎動計數是簡易自測指標：若「2 小時內胎動少於 10 次」，或胎動頻率較平常減少 50% 以上，均為胎兒胎盤功能不足或窘迫之警訊，必須立即就醫！'
   },
-  {
-    id: 13,
-    tier: 'intermediate',
-    stationName: '竹圍站 · R26',
-    levelLabel: '進階 · 孕期神經管預防',
-    question: '【神經管缺陷預防營養】產科護理指引建議，婦女自計畫懷孕起至妊娠前三個月，每日應確保補充何種營養素以有效預防胎兒無腦症與脊柱裂等神經管缺陷？',
-    options: [
-      '維生素 C（8000 毫克）',
-      '葉酸（Folic acid，每日建議 400~600 微克）',
-      '高劑量維生素 A（每日 100,000 國際單位）',
-      '重金屬鉛粉與水銀精華液'
-    ],
-    correctIndex: 1, // B
-    explanation: '【課本 CH05 p206 孕期營養需要】葉酸是細胞分裂與神經管閉合之關鍵營養素，備孕與孕早期每日需補充 400~600 微克葉酸，可顯著降低神經管缺損（如脊柱裂、無腦症）發生率！'
-  },
-  {
-    id: 14,
-    tier: 'intermediate',
-    stationName: '竹圍站 · R26',
-    levelLabel: '進階 · 假宮縮與假產痛',
-    question: '【假性宮縮（Braxton Hicks contractions）鑑別】懷孕第二、三期常出現無痛或微痛的子宮收縮，關於其特性之敘述何者完全正確？',
-    options: [
-      '屬於不規則宮縮，強度不隨時間增強，休息或散步可使症狀緩解，且不會造成子宮頸擴張',
-      '每隔 3 分鐘規律收縮一次，持續劇痛 90 秒，並導致子宮頸急速全開',
-      '屬於急性子宮破裂的前兆，必須在 10 分鐘內全身麻醉開刀',
-      '只會在分娩前一分鐘才突然出現一次'
-    ],
-    correctIndex: 0, // A
-    explanation: '【課本 CH03 p98 & CH05 p210 假性宮縮】希克斯氏收縮（Braxton Hicks）為子宮肌層練習性不規則收縮，強度不強且無規律性，休息、喝水或改變姿勢可緩解，且「不會引起子宮頸變薄與擴張」！'
-  },
-  {
-    id: 15,
-    tier: 'intermediate',
-    stationName: '竹圍站 · R26',
-    levelLabel: '進階 · 骨盆底肌訓練',
-    question: '【凱格爾運動（Kegel exercise）】產前衛教鼓勵孕婦每日練習凱格爾運動（會陰收縮運動），主要鍛鍊下列哪一群肌肉以預防產後骨盆脫垂及壓力性尿失禁？',
-    options: [
-      '胸大肌與二頭肌',
-      '咬肌與顳肌',
-      '恥骨尾骨肌（Pubococcygeus muscle，骨盆底肌肉群）',
-      '腓腸肌與比目魚肌'
-    ],
-    correctIndex: 2, // C
-    explanation: '【課本 CH05 p214 產前運動】凱格爾運動主要是自主收縮「恥骨尾骨肌（PC muscle）」，可增加產道肌肉彈性、加速產後會陰傷口癒合，並有效預防產後壓力性尿失禁與骨盆器官脫垂！'
-  },
 
-  // ==================== 第四站 · 紅樹林站 (R27) · 待產鑑別與產兆破水篇 (Q16 ~ Q20) ====================
+  // ==================== 第四站 · 紅樹林站 (R27) · 待產鑑別與產兆破水篇 (Q7 ~ Q8) ====================
   {
-    id: 16,
+    id: 7,
     tier: 'expert',
     stationName: '紅樹林站 · R27',
     levelLabel: '🔥魔王級 · 真假產痛關鍵鑑別',
@@ -1164,7 +1026,7 @@ export const SUBWAY_QUESTIONS: Question[] = [
     explanation: '【課本 CH05 p210-211 真假產痛鑑別】真陣痛三大鐵則：(1)規律且頻率越來越密、強度越來越強；(2)疼痛由下背向腹部放射，散步無法緩解；(3)伴隨「子宮頸進行性消失與擴張」，此為最可靠之鑑別指標！'
   },
   {
-    id: 17,
+    id: 8,
     tier: 'expert',
     stationName: '紅樹林站 · R27',
     levelLabel: '🔥魔王級 · 早期破水處置危機',
@@ -1176,72 +1038,12 @@ export const SUBWAY_QUESTIONS: Question[] = [
       '產婦兩耳立即永久性失聰'
     ],
     correctIndex: 2, // C
-    explanation: '【課本 CH05 p210-211 破水處置】破水最危險之立即併發症為「臍帶脫垂（尤其胎頭未固定時）」，會造成胎兒血流瞬斷窒息！護理應立即評估胎心音、採平躺或抬高臀部臥位，並以石蕊試紙（變深藍，pH>6.5）確認羊水！'
-  },
-  {
-    id: 18,
-    tier: 'expert',
-    stationName: '紅樹林站 · R27',
-    levelLabel: '🔥魔王級 · 活性疫苗禁忌',
-    question: '【活性疫苗禁忌】護理師在產檢衛教時，下列哪一類疫苗屬於「孕婦絕對禁忌施打」，因其具活性病毒可能直接穿過胎盤造成胎兒致畸反應？',
-    options: [
-      '破傷風類毒素疫苗（Tetanus toxoid）',
-      '季節性流感不活化疫苗（Inactivated influenza vaccine）',
-      '麻疹、腮腺炎、德國麻疹（MMR）及口服小兒麻痺疫苗（活性減毒疫苗）',
-      '百日咳非細胞型疫苗（Tdap 混合疫苗）'
-    ],
-    correctIndex: 2, // C
-    explanation: '【課本 CH05 p209 疾病預防與用藥】麻疹、腮腺炎、德國麻疹（MMR）、水痘及口服小兒麻痺（OPV）等「活性病毒預防針」，對胎兒有致畸胎反應，孕期絕對禁忌施打！'
-  },
-  {
-    id: 19,
-    tier: 'expert',
-    stationName: '紅樹林站 · R27',
-    levelLabel: '🔥魔王級 · 胚胎致畸危險週數',
-    question: '【藥物致畸關鍵期】胎兒器官發育時，對外來致畸物質（Teratogen）及有害藥物感受性最高、「致畸反應最危險」的關鍵發展時期為？',
-    options: [
-      '妊娠第一期，尤其是「懷孕第 3~8 週」（主要器官形成期）',
-      '受精後的最初 3 天之內（尚未進入子宮腔）',
-      '妊娠第三期第 36~40 週（足月待產期）',
-      '分娩後產褥期的第二週'
-    ],
-    correctIndex: 0, // A
-    explanation: '【課本 CH05 p209 藥物致畸反應】藥物的致畸胎反應最危險是在胎兒早期發展時期，即「妊娠第一期（尤其 3~8 週）」，此時期為主要器官分化形成關鍵期，極易造成結構性嚴重缺陷！'
-  },
-  {
-    id: 20,
-    tier: 'expert',
-    stationName: '紅樹林站 · R27',
-    levelLabel: '🔥魔王級 · 子宮頸比喻與危險產兆',
-    question: '【產科體徵與危險徵象】產科教科書以精妙比喻形容「子宮頸軟硬度」隨孕期的變化，並界定需立即就醫的危險徵象。下列敘述何者完全正確？',
-    options: [
-      '子宮頸未孕時像「石頭」、懷孕時像「鐵塊」、生產時像「鋼筋」；只要未流血就算破水也可在家等待一週',
-      '子宮頸終其一生硬度皆如骨骼般堅硬；胎動 24 小時內完全消失屬於正常休息現象無須就診',
-      '子宮頸未孕時像「鼻頭」、懷孕時像「耳垂」、生產時像「融化的奶油」；未足月若出現每 15 分鐘收縮大於 4 次或破水應立即就診',
-      '子宮頸在懷孕時會完全骨化；出現真正產痛前持續大量漏水是正常分泌物增多表現'
-    ],
-    correctIndex: 2, // C
-    explanation: '【課本 CH03 p97 子宮頸軟硬度 & CH05 p210 危險徵象】子宮頸軟硬度變化：未懷孕像鼻頭、懷孕像耳垂、生產時像嘴唇或「融化的奶油」！危險徵象中：早期破水、未足月每 15 分鐘收縮大於 4 次、胎動 10 次所需時間大於 2 小時或減少 50% 均為緊急就診指標！'
+    explanation: '【課本 CH05 p210-211 破水處置】破水最危險之立即併發症為「臍帶脫垂（尤其胎頭未固定時）」，會造成胎兒血流瞬斷窒息！在捷運車廂或月台應立即按壓對講機通知站務員啟動緊急醫療救護、就近緊急送往醫院產房！'
   },
 
-  // ==================== 第五站 · 淡水終點站 (R28) · 分娩拉梅茲呼吸魔王總決戰篇 (Q21 ~ Q25) ====================
+  // ==================== 第五站 · 淡水終點站 (R28) · 分娩拉梅茲呼吸魔王總決戰篇 (Q9 ~ Q10) ====================
   {
-    id: 21,
-    tier: 'expert',
-    stationName: '淡水終點站 · R28',
-    levelLabel: '🔥魔王級 · 拉梅茲潛伏期胸式呼吸',
-    question: '【拉梅茲呼吸法：第一產程早期】當產婦子宮頸開 0~3 公分（潛伏期 Latent phase），宮縮每 5~20 分鐘一次，此時最適當的呼吸方式為？',
-    options: [
-      '全力憋氣往下用力推擠骨盆底肌肉',
-      '每分鐘 80 次的急促犬吠換氣',
-      '先做一次廓清式呼吸，接著進行「慢而深之胸式呼吸（每分鐘約 6~9 次）」，結束再做一次廓清式呼吸',
-      '完全停止呼吸直至宮縮完全消失'
-    ],
-    correctIndex: 2, // C
-    explanation: '【課本 CH05 p228 拉梅茲第一階段慢速呼吸】潛伏期（開 0~3cm）宮縮溫和，應保持放鬆：開始做 1 次廓清式呼吸，收縮期間以鼻子吸氣、嘴唇微張吐氣（速度為正常呼吸的一半，約 6~9 次/分），結束再做一次廓清式呼吸！'
-  },
-  {
-    id: 22,
+    id: 9,
     tier: 'expert',
     stationName: '淡水終點站 · R28',
     levelLabel: '🔥魔王級 · 拉梅茲過渡期技巧',
@@ -1256,37 +1058,7 @@ export const SUBWAY_QUESTIONS: Question[] = [
     explanation: '【課本 CH05 p228-229 過渡期呼吸法】過渡期子宮頸開 8~10cm，宮縮強烈易誘發產婦過早用力。步驟為：(1)先做一次廓清式呼吸；(2)身體放鬆注視定點；(3)「短吸 4 口氣，之後用嘴呼氣（吹氣）」，重複至收縮結束；(4)結束再做一次廓清式呼吸！'
   },
   {
-    id: 23,
-    tier: 'expert',
-    stationName: '淡水終點站 · R28',
-    levelLabel: '🔥魔王級 · 胎頭娩出呼吸驟變',
-    question: '【胎頭娩出瞬間】在分娩第二產程宮縮用力時，當醫護人員告知「胎頭即將娩出產道（Crowning / 胎頭著冠）」時，產婦的呼吸用力方式應「立刻」如何切換？',
-    options: [
-      '使出全身吃奶力氣深吸一口氣憋住 120 秒，一口氣猛力將胎兒推噴出產道',
-      '立刻翻轉為胸膝臥位，並用力捶打腹部加速胎兒滑出',
-      '立即採全身肌肉僵直緊繃，並屏住呼吸直到剪斷臍帶',
-      '立刻停止憋氣用力，改採「輕淺呼吸（哈氣或吹氣）」，讓胎頭緩慢受控娩出'
-    ],
-    correctIndex: 3, // D
-    explanation: '【課本 CH05 p229 分娩期呼吸步驟5】胎頭娩出後，必須立刻「改採輕淺呼吸，不需再憋住氣往下用力」！此時若繼續暴衝用力，會導致胎頭急遽衝出造成產婦嚴重的三度或四度會陰重度裂傷！'
-  },
-  {
-    id: 24,
-    tier: 'expert',
-    stationName: '淡水終點站 · R28',
-    levelLabel: '🔥魔王級 · 仰臥低血壓急救處置',
-    question: '【仰臥低血壓症候群（Supine Hypotensive Syndrome）】孕婦仰臥平躺超過 5 分鐘後，突發面色蒼白、冷汗、出冷汗伴血壓下降 30mmHg，最快速逆轉其血液動力學危機之護理處置為？',
-    options: [
-      '立刻將孕婦翻身採「左側臥位」，或在右臀下方墊一小枕頭使子宮向左傾斜',
-      '給予大量利尿劑強迫排出體內多餘水分',
-      '將孕婦雙腳懸空倒立，並在額頭重擊一拳喚醒意識',
-      '要求孕婦站立單腳跳躍以刺激心跳'
-    ],
-    correctIndex: 0, // A
-    explanation: '【課本 CH03 p102 仰臥低血壓症候群】平躺時膨大子宮壓迫下腔靜脈，回心血量驟降致心輸出量降低。最佳處置為立即採「左側臥（Left lateral position）」，移開子宮重壓，下腔靜脈血液瞬間回流心臟，血壓立即回升！'
-  },
-  {
-    id: 25,
+    id: 10,
     tier: 'expert',
     stationName: '淡水終點站 · R28',
     levelLabel: '🔥魔王級 · 產後大出血預防與子宮評估',
@@ -1303,10 +1075,162 @@ export const SUBWAY_QUESTIONS: Question[] = [
 ];
 
 
+================================================================================
+// FILE: src/data/reportData.ts
+================================================================================
 
-========================================
-FILE: src/data/persistedVideo.ts
-========================================
+import { TrimesterInfo, ExperienceLogEntry } from '../types/pregnancy';
+
+export const TRIMESTER_DATA: TrimesterInfo[] = [
+  {
+    id: 1,
+    name: '孕早期 (妊娠第 1 ~ 12 週)',
+    weeks: '1 ~ 12 週',
+    babySize: '從受精卵成長至青檸檬大小 (約 5.4cm)',
+    babyLength: '約 0.1cm ~ 5.4cm',
+    babyWeight: '約 1g ~ 14g',
+    physicalChanges: [
+      'hCG (人絨毛膜促性腺激素) 與黃體素急遽攀升，體溫略微上升',
+      '晨吐與味覺敏感（對特定油煙、咖啡、辛辣氣味產生強烈噁心感）',
+      '全身性極度嗜睡與疲倦，乳房脹痛柔軟，頻尿初期出現',
+      '子宮逐漸擴大至拳頭大小，壓迫骨盆腔自律神經'
+    ],
+    psychologicalChanges: [
+      '面對懷孕新身份的驚喜、不確定與隱形焦慮',
+      '「外表看不出來」但身體極度不適的無奈感，常被周遭誤解為無病呻吟',
+      '荷爾蒙起伏帶來的莫名低落或易感脆弱'
+    ],
+    commonDiscomforts: ['晨吐反胃', '嗜睡無力', '消化不良/胃脹氣', '情緒波動', '頻尿'],
+    careTips: [
+      '少量多餐，床頭準備蘇打餅乾，早晨醒來先吃幾片再下床',
+      '避免空腹，多補充維生素 B6 與葉酸 (每日建議 400~600 微克)',
+      '保持通風，避開油煙及重油重鹹飲食',
+      '給予充分午休時間，勿逞強熬夜'
+    ],
+    partnerSupportAdvice: [
+      '主動分擔煮飯與洗碗，避免孕婦聞到熱油煙引起嘔吐',
+      '隨身備妥溫開水、酸梅或檸檬水，提供情緒支持而非說「忍一下就過了」',
+      '陪伴第一次產檢，聆聽寶寶最初的心跳聲'
+    ]
+  },
+  {
+    id: 2,
+    name: '孕中期 (妊娠第 13 ~ 27 週)',
+    weeks: '13 ~ 27 週',
+    babySize: '從酪梨成長至大白菜大小 (約 36cm)',
+    babyLength: '約 7.4cm ~ 36cm',
+    babyWeight: '約 23g ~ 900g',
+    physicalChanges: [
+      '晨吐逐漸減緩，食慾恢復，精神相較早期穩定',
+      '肚子明顯隆起，腰椎前凸角度增大，背部肌肉開始長期緊繃',
+      '約 18~20 週首度感受到神奇的「胎動 (Fetal Movement)」',
+      '下肢靜脈受壓迫，血液回流變慢，傍晚易出現小腿與腳踝水腫'
+    ],
+    psychologicalChanges: [
+      '感受到胎動後母子連結加深，心情逐漸開朗愉悅',
+      '開始面對體型變化、妊娠紋出現帶來的外貌焦慮',
+      '積極閱讀育兒知識與準備待產清單'
+    ],
+    commonDiscomforts: ['下背痠痛', '小腿半夜抽筋', '下肢水腫', '圓韌帶拉扯痛', '皮膚搔癢'],
+    careTips: [
+      '穿著合適的托腹帶以減輕腰椎與骨盆負擔',
+      '多攝取高鈣食物（黑芝麻、牛奶、豆干）預防半夜抽筋',
+      '睡前抬高雙腿 15~20 分鐘，睡覺時使用月亮枕支撐腹部',
+      '進行溫和的孕婦瑜珈或散步強化核心與骨盆底肌'
+    ],
+    partnerSupportAdvice: [
+      '每晚主動幫孕婦進行腿部溫熱水泡腳與小腿由下往上舒緩按摩',
+      '一起雙手觸摸肚皮感受胎動，跟腹中寶寶說說話',
+      '散步時主動牽手，幫忙提所有重物'
+    ]
+  },
+  {
+    id: 3,
+    name: '孕晚期 (妊娠第 28 ~ 40 週)',
+    weeks: '28 ~ 40 週',
+    babySize: '從哈密瓜成長至大西瓜大小 (約 50cm)',
+    babyLength: '約 37cm ~ 51cm',
+    babyWeight: '約 1000g ~ 3400g+',
+    physicalChanges: [
+      '子宮底升至劍突下方，嚴重壓迫橫膈膜與胃，呼吸短促易喘',
+      '骨盆鬆弛素 (Relaxin) 分泌達高峰，恥骨聯合分離，翻身與走路劇烈痠痛',
+      '胎頭下降壓迫膀胱，頻尿極度嚴重（半夜需起床 3~5 次）',
+      '假性宮縮 (Braxton Hicks) 頻率增加，腹部不定期發硬發緊'
+    ],
+    psychologicalChanges: [
+      '對生產過程的恐懼與期待交織，擔心產兆突發',
+      '長期睡眠破碎化（無法平躺、翻身如搬大石）導致的情緒耗竭',
+      '迫切希望「卸貨」又珍惜合為一體時光的複雜母愛情懷'
+    ],
+    commonDiscomforts: ['恥骨痛/跨下撕裂感', '胃食道逆流 (火燒心)', '重度頻尿', '平躺呼吸困難', '仰臥低血壓'],
+    careTips: [
+      '絕對採取「左側臥姿」，使用托腹枕墊於腹下、夾於雙腿間',
+      '起床時先側身，用雙手支撐慢慢坐起，不可直接仰臥起坐',
+      '練習拉梅茲呼吸法 (Lamaze)，學會與宮縮共處的調息節奏',
+      '雙腳穿防滑包鞋，避免彎腰撿東西，改以扶牆屈膝慢蹲'
+    ],
+    partnerSupportAdvice: [
+      '半夜孕婦起床如廁時保持警覺，幫忙開夜燈防止跌倒',
+      '熟練拉梅茲呼吸節奏，在產痛來臨時擔任「節奏引導者」',
+      '包辦所有彎腰家務（綁鞋帶、撿地板物品、剪腳趾甲、吸地）'
+    ]
+  }
+];
+
+export const EXPERIENCE_LOGS: ExperienceLogEntry[] = [
+  {
+    day: '第 1 天',
+    timeSlot: '07:30 - 早晨出門準備',
+    activity: '穿戴 6kg 模擬水袋背包與護腰束腹帶，嘗試自己彎腰穿襪子與綁鞋帶',
+    simulatedWeight: '6.2 kg (相當於懷孕 32 週)',
+    discomfortLevel: 7,
+    fatigueLevel: 6,
+    observation: '巨大的假肚皮頂住大腿與肋骨，完全看不到自己的腳趾！如果強行彎腰，胃部瞬間湧上一股酸水，呼吸直接卡住。',
+    reflection: '才發現「自己穿鞋」這件微不足道的小事，對孕婦來說是需要屏住呼吸、滿頭大汗的全身運動。以後看到孕婦，我會主動蹲下幫忙！'
+  },
+  {
+    day: '第 1 天',
+    timeSlot: '08:45 - 捷運通勤上學路',
+    activity: '負重搭乘尖峰時段捷運，站立 25 分鐘，體驗列車晃動與剎車平衡',
+    simulatedWeight: '6.2 kg',
+    discomfortLevel: 8,
+    fatigueLevel: 8,
+    observation: '列車每一次煞車，腰部就像被向下拉扯；雖然背了體驗背包，但外表看不出真正孕肚，周圍低頭滑手機的乘客沒有人注意到我的痛苦。',
+    reflection: '很多人以為只有「大肚子」才需要讓座，但其實懷孕初期的隱形頭暈與頻尿更令人虛脫。「好孕胸章」的推廣與主動抬頭關心周遭，太重要了。'
+  },
+  {
+    day: '第 1 天',
+    timeSlot: '13:00 - 午後課堂與如廁',
+    activity: '久坐木質硬椅 2 小時，每 35 分鐘感受模擬頻尿膀胱壓迫感',
+    simulatedWeight: '6.2 kg',
+    discomfortLevel: 6,
+    fatigueLevel: 7,
+    observation: '硬椅子讓尾椎骨刺痛難忍，腰背必須懸空或弓起；每次從座位站起來都需要用雙手撐住桌子，恥骨有牽扯般的悶痛。',
+    reflection: '學校或辦公室如果沒有人體工學靠墊與足夠的無障礙電梯，對孕婦來說每一節課間走動都是折磨。'
+  },
+  {
+    day: '第 1 天',
+    timeSlot: '23:30 - 深夜睡眠翻身實驗',
+    activity: '負重躺平 15 分鐘，隨後切換至左側臥並使用月亮枕支撐',
+    simulatedWeight: '6.2 kg',
+    discomfortLevel: 9,
+    fatigueLevel: 9,
+    observation: '仰臥平躺才 3 分鐘，就感到胸口發悶、呼吸心跳加速（下腔靜脈受壓！）。想翻身到左側時，必須像烏龜翻殼一樣手腳並用分段挪動。',
+    reflection: '原來「好好睡個覺」對孕晚期媽媽是最大的奢侈。月亮枕的支撐真的救了一命，能明顯分擔腹部懸空的拉扯重力。'
+  }
+];
+
+export const SCIENTIFIC_STATS = [
+  { label: '平均孕期體重增加', value: '11 ~ 15 kg', note: '含胎兒、羊水、胎盤、血液擴增' },
+  { label: '心臟做功血容量激增', value: '+40% ~ 50%', note: '母體循環系統全力供氧維持兩人生命' },
+  { label: '骨盆鬆弛素釋放影響', value: '恥骨間隙增大 2~3mm', note: '造成孕晚期翻身與跨步的步態劇痛' },
+  { label: '夜間睡眠中斷次數', value: '平均 3.8 次 / 晚', note: '頻尿、胎動、抽筋與肋骨踢擊' }
+];
+
+
+================================================================================
+// FILE: src/data/persistedVideo.ts
+================================================================================
 
 export interface PersistedVideoInfo {
   type: 'url' | 'file';
@@ -1315,38 +1239,408 @@ export interface PersistedVideoInfo {
   description?: string;
   size?: number;
   uploadedAt: string;
-  isDefault?: boolean;
 }
 
-export const DEFAULT_TEAM_VIDEO: PersistedVideoInfo = {
-  type: 'url',
-  url: 'https://www.youtube.com/watch?v=_HHZWmEm9K4',
-  name: '【小組實測影片】台北捷運孕婦負重體驗與讓座實測紀錄',
-  description: '體驗者配戴 6.5kg 負重裝置搭乘台北捷運淡水信義線，實測車廂顛簸站立、乘客發現與友善讓座互動全紀錄。',
-  uploadedAt: '2026-10-17T08:00:00.000Z',
-  isDefault: true,
-};
 
-
-
-========================================
-FILE: src/data/persistedVideo.json
-========================================
+================================================================================
+// FILE: src/data/persistedVideo.json
+================================================================================
 
 {
-  "type": "url",
-  "url": "https://www.youtube.com/watch?v=_HHZWmEm9K4",
-  "name": "【小組實測影片】台北捷運孕婦負重體驗與讓座實測紀錄",
-  "description": "體驗者配戴 6.5kg 負重裝置搭乘台北捷運淡水信義線，實測車廂顛簸站立、乘客發現與友善讓座互動全紀錄。",
-  "uploadedAt": "2026-10-17T08:00:00.000Z",
-  "isDefault": true
+  "type": null
+}
+
+================================================================================
+// FILE: src/utils/audio.ts
+================================================================================
+
+// Web Audio API lightweight sound synthesizer (Kawaii & Arcade Game Edition)
+let audioCtx: AudioContext | null = null;
+
+function getAudioContext(): AudioContext | null {
+  if (typeof window === 'undefined') return null;
+  if (!audioCtx) {
+    const AudioCtxClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (AudioCtxClass) {
+      audioCtx = new AudioCtxClass();
+    }
+  }
+  if (audioCtx && audioCtx.state === 'suspended') {
+    audioCtx.resume().catch(() => {});
+  }
+  return audioCtx;
+}
+
+// Cute popping bubble sound
+export function playKawaiiPop() {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(450, now);
+  osc.frequency.exponentialRampToValueAtTime(900, now + 0.08);
+
+  gain.gain.setValueAtTime(0.25, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(now);
+  osc.stop(now + 0.1);
+}
+
+// Cute coin/catch sound
+export function playKawaiiCoin() {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(987.77, now); // B5
+  osc.frequency.setValueAtTime(1318.51, now + 0.07); // E6
+
+  gain.gain.setValueAtTime(0.18, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(now);
+  osc.stop(now + 0.26);
+}
+
+// Cute wobble boing
+export function playKawaiiOuch() {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(320, now);
+  osc.frequency.exponentialRampToValueAtTime(180, now + 0.15);
+
+  gain.gain.setValueAtTime(0.2, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(now);
+  osc.stop(now + 0.22);
+}
+
+// Subway Station Announcement Tone (捷運報站經典叮咚鐘聲)
+export function playSubwayStationChime() {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  const now = ctx.currentTime;
+
+  // Classic Taipei / MRT station arrival chime chords (G4 -> C5 -> E5 -> G5)
+  const notes = [
+    { freq: 392.0, time: 0.0, dur: 0.35 },    // G4
+    { freq: 523.25, time: 0.18, dur: 0.4 },  // C5
+    { freq: 659.25, time: 0.36, dur: 0.45 }, // E5
+    { freq: 783.99, time: 0.54, dur: 0.7 }   // G5 (Long sustaining chime)
+  ];
+
+  notes.forEach(({ freq, time, dur }) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    // Sine with overtone for marimba/chime warmth
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, now + time);
+
+    gain.gain.setValueAtTime(0.22, now + time);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + time + dur);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now + time);
+    osc.stop(now + time + dur + 0.05);
+  });
+}
+
+// Metro Door Warning Beeps (嗶嗶嗶~ 列車即將關門)
+export function playMetroDoorBeep() {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  const now = ctx.currentTime;
+
+  [0, 0.15, 0.3].forEach((t) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(1760, now + t); // A6
+    gain.gain.setValueAtTime(0.12, now + t);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + t + 0.08);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now + t);
+    osc.stop(now + t + 0.09);
+  });
+}
+
+// Broadcast callbacks without synthetic voices
+export function playGuanduStationBroadcast(onTextUpdate?: (text: string) => void) {
+  // Pure visual marquee updater - zero synthetic voice added
+  if (onTextUpdate) {
+    onTextUpdate('國語：關渡。下車時請注意間隙。');
+    setTimeout(() => onTextUpdate('English: Guandu Station. Mind the gap.'), 5000);
+    setTimeout(() => onTextUpdate('台語：關渡，落車的時陣請注意空隙。'), 9000);
+    setTimeout(() => onTextUpdate('客語：關渡，下車个時節請注意縫仔。'), 13000);
+    setTimeout(() => onTextUpdate('右側開門 · 下車時請注意間隙'), 17000);
+  }
+}
+
+// Authentic Guandu Station Arrival Broadcast
+export function playGuanduArrivalBroadcast(onTextUpdate?: (text: string) => void) {
+  if (onTextUpdate) {
+    onTextUpdate('📢 關渡到了，右側開門。下車時請注意間隙。');
+  }
+}
+
+// Quiz Correct Answer Chime (答題正確！清脆悅耳叮咚聲)
+export function playQuizCorrectChime() {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  const now = ctx.currentTime;
+
+  // Ascending cheerful bells: C5 -> G5 -> C6
+  const bells = [
+    { f: 523.25, t: 0, d: 0.25 },
+    { f: 783.99, t: 0.08, d: 0.3 },
+    { f: 1046.5, t: 0.16, d: 0.45 }
+  ];
+
+  bells.forEach(({ f, t, d }) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(f, now + t);
+
+    gain.gain.setValueAtTime(0.25, now + t);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + t + d);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now + t);
+    osc.stop(now + t + d + 0.05);
+  });
+}
+
+// Quiz Wrong Answer Chime (答題錯誤！低沉警告嗡嗡聲)
+export function playQuizWrongChime() {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  const now = ctx.currentTime;
+
+  // Descending discordant warning tone
+  const osc1 = ctx.createOscillator();
+  const osc2 = ctx.createOscillator();
+  const gain = ctx.createGain();
+
+  osc1.type = 'sawtooth';
+  osc2.type = 'sawtooth';
+
+  // Dissonant interval
+  osc1.frequency.setValueAtTime(220, now); // A3
+  osc1.frequency.linearRampToValueAtTime(160, now + 0.28);
+
+  osc2.frequency.setValueAtTime(233, now); // Bb3 (discordant tension)
+  osc2.frequency.linearRampToValueAtTime(170, now + 0.28);
+
+  gain.gain.setValueAtTime(0.18, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+
+  osc1.connect(gain);
+  osc2.connect(gain);
+  gain.connect(ctx.destination);
+
+  osc1.start(now);
+  osc2.start(now);
+  osc1.stop(now + 0.32);
+  osc2.stop(now + 0.32);
+}
+
+// Morning Nausea Gurgle & Queasy Sound (孕吐反胃咕嚕咕嚕唔唔聲)
+export function playMorningSicknessGurgle() {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  const now = ctx.currentTime;
+
+  // Modulated low bubbling frequency
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  const filter = ctx.createBiquadFilter();
+
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(120, now);
+  osc.frequency.linearRampToValueAtTime(75, now + 0.15);
+  osc.frequency.linearRampToValueAtTime(110, now + 0.3);
+  osc.frequency.linearRampToValueAtTime(60, now + 0.45);
+
+  filter.type = 'lowpass';
+  filter.frequency.setValueAtTime(250, now);
+
+  gain.gain.setValueAtTime(0.2, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.48);
+
+  osc.connect(filter);
+  filter.connect(gain);
+  gain.connect(ctx.destination);
+
+  osc.start(now);
+  osc.stop(now + 0.5);
+}
+
+// Gentle Morning Ambient Hum (輕柔清晨臥室環境微音)
+let morningAmbientOsc: OscillatorNode | null = null;
+let morningAmbientGain: GainNode | null = null;
+
+export function startMorningAmbientHum() {
+  const ctx = getAudioContext();
+  if (!ctx || morningAmbientOsc) return;
+
+  const now = ctx.currentTime;
+  morningAmbientOsc = ctx.createOscillator();
+  morningAmbientGain = ctx.createGain();
+  const filter = ctx.createBiquadFilter();
+
+  morningAmbientOsc.type = 'sine';
+  morningAmbientOsc.frequency.setValueAtTime(110, now); // Gentle low A2 hum
+
+  filter.type = 'lowpass';
+  filter.frequency.setValueAtTime(160, now);
+
+  // Very subtle background volume (5%)
+  morningAmbientGain.gain.setValueAtTime(0.001, now);
+  morningAmbientGain.gain.linearRampToValueAtTime(0.04, now + 1.2);
+
+  morningAmbientOsc.connect(filter);
+  filter.connect(morningAmbientGain);
+  morningAmbientGain.connect(ctx.destination);
+
+  morningAmbientOsc.start(now);
+}
+
+export function stopMorningAmbientHum() {
+  if (!morningAmbientGain || !morningAmbientOsc || !audioCtx) return;
+  try {
+    const now = audioCtx.currentTime;
+    morningAmbientGain.gain.linearRampToValueAtTime(0.0001, now + 0.5);
+    setTimeout(() => {
+      if (morningAmbientOsc) {
+        morningAmbientOsc.stop();
+        morningAmbientOsc.disconnect();
+        morningAmbientOsc = null;
+      }
+      morningAmbientGain = null;
+    }, 600);
+  } catch {
+    morningAmbientOsc = null;
+    morningAmbientGain = null;
+  }
+}
+
+// Rhythm hit sound
+export function playRhythmHit(perfect: boolean = true) {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(perfect ? 1046.5 : 783.99, now); // C6 or G5
+  gain.gain.setValueAtTime(0.2, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(now);
+  osc.stop(now + 0.13);
+}
+
+// Heartbeat
+export function playHeartbeat() {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  const now = ctx.currentTime;
+
+  const osc1 = ctx.createOscillator();
+  const gain1 = ctx.createGain();
+  osc1.type = 'sine';
+  osc1.frequency.setValueAtTime(70, now);
+  osc1.frequency.exponentialRampToValueAtTime(45, now + 0.08);
+
+  gain1.gain.setValueAtTime(0.3, now);
+  gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+
+  osc1.connect(gain1);
+  gain1.connect(ctx.destination);
+  osc1.start(now);
+  osc1.stop(now + 0.09);
+
+  const osc2 = ctx.createOscillator();
+  const gain2 = ctx.createGain();
+  osc2.type = 'sine';
+  osc2.frequency.setValueAtTime(60, now + 0.12);
+  osc2.frequency.exponentialRampToValueAtTime(40, now + 0.22);
+
+  gain2.gain.setValueAtTime(0.22, now + 0.12);
+  gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+
+  osc2.connect(gain2);
+  gain2.connect(ctx.destination);
+  osc2.start(now + 0.12);
+  osc2.stop(now + 0.23);
+}
+
+// Victory fanfare
+export function playSuccessChime() {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  const notes = [523.25, 659.25, 783.99, 1046.5, 1318.5]; // C5, E5, G5, C6, E6
+  notes.forEach((freq, idx) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const start = ctx.currentTime + idx * 0.07;
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(freq, start);
+    gain.gain.setValueAtTime(0.18, start);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.35);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(start);
+    osc.stop(start + 0.4);
+  });
+}
+
+export function playGentleClick() {
+  playKawaiiPop();
+}
+
+export function playWarningBeep() {
+  playQuizWrongChime();
+}
+
+export function playCalmBreathChime() {
+  playKawaiiCoin();
 }
 
 
-
-========================================
-FILE: src/utils/videoStorage.ts
-========================================
+================================================================================
+// FILE: src/utils/videoStorage.ts
+================================================================================
 
 // IndexedDB & LocalStorage persistent storage utility for large team videos
 
@@ -1518,10 +1812,9 @@ export function removePersistedVideoFromLocalStorage(): void {
 }
 
 
-
-========================================
-FILE: src/components/Navbar.tsx
-========================================
+================================================================================
+// FILE: src/components/Navbar.tsx
+================================================================================
 
 import React, { useState } from 'react';
 import { NavigationTab } from '../types/pregnancy';
@@ -1577,13 +1870,14 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
   return (
     <>
       <header className="sticky top-0 z-40 bg-[#FFE0E6]/95 backdrop-blur-md border-b-2 border-[#FFBCBD]">
-        <div className="max-w-[1700px] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+        <div className="w-full max-w-[1700px] mx-auto px-2.5 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between gap-2 overflow-hidden">
           {/* Zone 1: Single text element wordmark */}
           <button
             onClick={() => handleNavClick('subway')}
-            className="text-lg font-black tracking-tight text-[#4A3337] font-serif-tc text-left hover:text-[#E85D75] transition-colors cursor-pointer flex items-center gap-1.5"
+            className="text-sm sm:text-lg font-black tracking-tight text-[#4A3337] font-serif-tc text-left hover:text-[#E85D75] transition-colors cursor-pointer flex items-center gap-1 min-w-0 shrink truncate"
           >
-            <span>🚇 站穩啦媽咪 · 捷運大冒險</span>
+            <span className="truncate">🚇 站穩啦媽咪</span>
+            <span className="hidden sm:inline text-xs font-normal text-[#7A5860]">· 捷運大冒險</span>
           </button>
 
           {/* Zone 2: clean text navigation links */}
@@ -1614,21 +1908,21 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
           </nav>
 
           {/* Zone 3: Actions */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               onClick={handleOpenCodeModal}
-              className="px-3 py-2 text-xs font-black text-[#5C3E43] bg-white/90 hover:bg-white border border-[#FFBCBD] rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
-              title="查看與下載全站完整代碼（未分開單一檔與ZIP）"
+              className="px-2.5 py-1.5 sm:px-3 sm:py-2 text-xs font-black text-[#5C3E43] bg-white/90 hover:bg-white border border-[#FFBCBD] rounded-xl shadow-xs transition-all flex items-center gap-1 cursor-pointer"
+              title="查看與下載全站完整代碼"
             >
               <Code className="w-3.5 h-3.5 text-[#E85D75]" />
-              <span className="hidden sm:inline">完整代碼</span>
+              <span className="text-[11px] sm:text-xs">代碼</span>
             </button>
 
             <button
               onClick={() => handleNavClick(activeTab === 'subway' ? 'video' : 'subway')}
-              className="px-4 py-2 text-xs font-black text-white bg-[#E85D75] hover:bg-[#D44763] rounded-xl shadow-xs transition-transform active:scale-95 whitespace-nowrap cursor-pointer"
+              className="px-2.5 py-1.5 sm:px-4 sm:py-2 text-xs font-black text-white bg-[#E85D75] hover:bg-[#D44763] rounded-xl shadow-xs transition-transform active:scale-95 whitespace-nowrap cursor-pointer flex items-center gap-1"
             >
-              {activeTab === 'subway' ? '🎬 觀看小組影片' : '🎮 玩捷運答題遊戲'}
+              <span>{activeTab === 'subway' ? '🎬 小組影片' : '🎮 答題遊戲'}</span>
             </button>
           </div>
         </div>
@@ -1760,10 +2054,9 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
 };
 
 
-
-========================================
-FILE: src/components/subway/SubwayGameView.tsx
-========================================
+================================================================================
+// FILE: src/components/subway/SubwayGameView.tsx
+================================================================================
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -1818,13 +2111,13 @@ interface SubwayGameViewProps {
 const QUESTION_TIME_LIMIT = 15; // 15 seconds per question
 const MAX_MISTAKES = 4; // 4 strikes before train emergency stop!
 
-// Metro Red Line Stations on the Tour
+// Metro Red Line Stations on the Tour (10 questions, 2 questions per station)
 const STATIONS = [
-  { id: 'R24', name: '忠義站', subtitle: '孕早期適應與通勤守護', range: [0, 4] },
-  { id: 'R25', name: '關渡站', subtitle: '孕中期生理調適與骨盆照護', range: [5, 9] },
-  { id: 'R26', name: '竹圍站', subtitle: '血液生理與胎動營養', range: [10, 14] },
-  { id: 'R27', name: '紅樹林站', subtitle: '待產鑑別與產兆破水', range: [15, 19] },
-  { id: 'R28', name: '淡水終點站', subtitle: '分娩拉梅茲呼吸魔王總決戰', range: [20, 24] }
+  { id: 'R24', name: '忠義站', subtitle: '孕早期適應與通勤守護', range: [0, 1] },
+  { id: 'R25', name: '關渡站', subtitle: '孕中期生理調適與骨盆照護', range: [2, 3] },
+  { id: 'R26', name: '竹圍站', subtitle: '血液生理與胎動營養', range: [4, 5] },
+  { id: 'R27', name: '紅樹林站', subtitle: '待產鑑別與產兆破水', range: [6, 7] },
+  { id: 'R28', name: '淡水終點站', subtitle: '分娩拉梅茲呼吸魔王總決戰', range: [8, 9] }
 ];
 
 export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
@@ -1883,13 +2176,6 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
   // Broadcast Multi-Lingual Switcher
   const [broadcastLang, setBroadcastLang] = useState<'zh' | 'tw' | 'hakka' | 'en'>('zh');
 
-  // Dynamic random subway incidents
-  const [activeIncident, setActiveIncident] = useState<{
-    id: string;
-    title: string;
-    desc: string;
-    actionText?: string;
-  } | null>(null);
   const [triggeredIncidents, setTriggeredIncidents] = useState<string[]>([]);
 
   // Fullscreen & Mobile View Modes
@@ -2162,15 +2448,15 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
         confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
       }
 
-      // Grand Triumphant Seat Offering: ONLY triggers late in the journey (after enduring 18+ correct answers)
-      if (!isSeated && nextCorrect >= 18 && !triggeredIncidents.includes('grand_seat_offering')) {
+      // Grand Triumphant Seat Offering: ONLY triggers late in the journey (after enduring 7+ correct answers out of 10)
+      if (!isSeated && nextCorrect >= 7 && !triggeredIncidents.includes('grand_seat_offering')) {
         setTriggeredIncidents((prev) => [...prev, 'grand_seat_offering']);
         setTimeout(() => {
           triggerGrandSeatOffering();
         }, 800);
       } else if (!isSeated) {
         setPassengerBubble('💪 媽咪雙手抓穩黃色立柱！6.5kg 負重站立，身體平衡超穩定！');
-        setBroadcastText('💪 媽咪扶好立柱了！堅持到底，答對 18 題即可感動全車迎來終極讓座！');
+        setBroadcastText('💪 媽咪扶好立柱了！堅持到底，答對 7 題即可感動全車迎來終極讓座！');
       }
 
       // Spontaneous Random Shield Blessing (護盾隨機出現)
@@ -2248,63 +2534,25 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
     const nextQ = currentQIndex + 1;
     setCurrentQIndex(nextQ);
 
-    // Station Transition Check
-    // Station Transition Check
-    if (nextQ === 5 || nextQ === 10 || nextQ === 15 || nextQ === 20) {
+    // Station Transition Check (arriving at stations: 2=關渡, 4=竹圍, 6=紅樹林, 8=淡水)
+    if (nextQ === 2 || nextQ === 4 || nextQ === 6 || nextQ === 8) {
       playSubwayStationChime();
       playMetroDoorBeep();
       const stationNames: Record<number, string> = {
-        5: '關渡站',
-        10: '竹圍站',
-        15: '紅樹林站',
-        20: '淡水終點站',
+        2: '關渡站',
+        4: '竹圍站',
+        6: '紅樹林站',
+        8: '淡水終點站',
       };
       const stName = stationNames[nextQ] || '下一站';
       setPassengerBubble(`🚇 叮咚！列車已駛抵【${stName}】，車門即將開啟，請小心月台間隙～`);
       setBroadcastText(`🚇 叮咚！列車抵達【${stName}】，全體乘客上下車請握好扶手！`);
     }
 
-    // Seat Dilemma Random Event Check: occurs randomly when not seated
-    if (!isSeated && !triggeredIncidents.includes('seat_dilemma') && (nextQ === 3 || (nextQ >= 2 && Math.random() < 0.35))) {
-      setTriggeredIncidents((prev) => [...prev, 'seat_dilemma']);
-      triggerSeatDilemma();
-      return;
-    }
-
-    // Dynamic incidents at other stations
-    if (nextQ === 2 && !triggeredIncidents.includes('curve')) {
-      setTriggeredIncidents((prev) => [...prev, 'curve']);
-      setActiveIncident({
-        id: 'curve',
-        title: '⚠️ 突發狀況：列車即將大過彎！',
-        desc: '前方大彎道！車廂離心力晃動，請立即握穩黃色立柱！',
-        actionText: '💪 抓緊立柱！'
-      });
-    } else if (nextQ === 6 && !triggeredIncidents.includes('grandma_veggies')) {
+    // Dynamic helpful NPC: 中途僅保留買菜阿嬤及時相助，大幅減少打斷，答題更專注
+    if (nextQ === 4 && !triggeredIncidents.includes('grandma_veggies')) {
       setTriggeredIncidents((prev) => [...prev, 'grandma_veggies']);
       triggerHelpfulNpc('grandma_veggies');
-    } else if (nextQ === 11 && !triggeredIncidents.includes('student_ming')) {
-      setTriggeredIncidents((prev) => [...prev, 'student_ming']);
-      triggerHelpfulNpc('student_ming');
-    } else if (nextQ === 13 && !triggeredIncidents.includes('dog')) {
-      setTriggeredIncidents((prev) => [...prev, 'dog']);
-      setActiveIncident({
-        id: 'dog',
-        title: '🐶 萌寵突發：推車裡的小柴犬豆豆探頭！',
-        desc: '推車裡的小柴犬探出毛茸茸小臉蛋汪了一聲，吐出小舌頭，全車乘客被融化！緊張氣氛消除，答題時間延長 +5 秒！',
-        actionText: '🥰 摸摸小柴犬！'
-      });
-    } else if (nextQ === 16 && !triggeredIncidents.includes('station_officer')) {
-      setTriggeredIncidents((prev) => [...prev, 'station_officer']);
-      triggerHelpfulNpc('station_officer');
-    } else if (nextQ === 22 && !triggeredIncidents.includes('kick')) {
-      setTriggeredIncidents((prev) => [...prev, 'kick']);
-      setActiveIncident({
-        id: 'kick',
-        title: '👶 溫馨小彩蛋：肚子裡的寶寶踢了一腳！',
-        desc: '『媽咪站得好穩，好棒！』肚子冒出滿滿愛心光芒，平衡值加滿，精神抖擻！',
-        actionText: '🥰 摸摸肚肚繼續加油！'
-      });
     }
   };
 
@@ -2514,8 +2762,8 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
       npcName: '全車乘客與同學們',
       npcRole: '感動全車的溫馨大讓座',
       avatar: '🎉💖💺',
-      badgeText: '🌟 奇蹟時刻 · 累積答對 18 題感動全車！',
-      quote: '「天哪！全車乘客看著車站跑馬燈：媽咪挺著 6.5kg 的負重，一路抓緊立柱，已經堅強跨越了 4 座大站、答對了 18 題產科考驗！高中生收起手機、上班族站起身、全車乘客一致起立鼓掌：『媽咪妳太偉大、太厲害了！最後這幾站抵達淡水，請無論如何一定要坐下休息！』」',
+      badgeText: '🌟 奇蹟時刻 · 累積答對 7 題感動全車！',
+      quote: '「天哪！全車乘客看著車站跑馬燈：媽咪挺著 6.5kg 的負重，一路抓緊立柱，已經堅強跨越了 4 座大站、答對了 7 題產科考驗！高中生收起手機、上班族站起身、全車乘客一致起立鼓掌：『媽咪妳太偉大、太厲害了！最後這幾站抵達淡水，請無論如何一定要坐下休息！』」',
       options: [
         {
           title: '欣然就座 · 享受全車掌聲與最後衝刺',
@@ -2585,39 +2833,6 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
     }, 4500);
   };
 
-  // Resolve dynamic incident
-  const handleResolveIncident = () => {
-    if (!activeIncident) return;
-    playSuccessChime();
-    if (activeIncident.id === 'curve') {
-      setHasShield(true);
-      setPassengerBubble('🛡️ 成功握緊立柱！獲得【好孕護盾】，可防禦一次急煞！');
-      setBroadcastText('🛡️ 媽咪緊握立柱，獲得護盾保佑！');
-      confetti({ particleCount: 70, spread: 70, origin: { y: 0.6 } });
-    } else if (activeIncident.id === 'plum') {
-      setTimeLeft((t) => t + 5);
-      setMistakeCount((m) => Math.max(0, m - 1));
-      setPassengerBubble('🍬 吃下阿嬤的話梅糖，胃部舒緩，失衡次數 -1，答題時間延長 5 秒！');
-      setBroadcastText('🍬 生津止渴舒緩孕吐，獲得長輩溫暖祝福！');
-    } else if (activeIncident.id === 'dog') {
-      setTimeLeft((t) => t + 5);
-      setBalance(100);
-      setPassengerBubble('🐶 柴犬豆豆開心地搖尾巴：汪汪！答題時間再 +5 秒！');
-      setBroadcastText('🐶 萌寵療癒全車，乘客們紛紛露出溫暖微笑！');
-      confetti({ particleCount: 60, spread: 60, origin: { y: 0.6 } });
-    } else if (activeIncident.id === 'broadcast') {
-      setHasShield(true);
-      setPassengerBubble('📢 全車乘客深受廣播觸動，紛紛投以友善關懷目光！');
-      setBroadcastText('💖 友善車廂文化，同理心讓座更有愛！');
-      confetti({ particleCount: 80, spread: 80, origin: { y: 0.6 } });
-    } else if (activeIncident.id === 'kick') {
-      setBalance(100);
-      setPassengerBubble('👶 寶寶在肚子裡揮揮小手：媽咪加油！');
-      setBroadcastText('👶 胎動頻繁活躍，母子同心迎戰魔王題！');
-      confetti({ particleCount: 90, spread: 80, origin: { y: 0.6 } });
-    }
-    setActiveIncident(null);
-  };
 
   const handleTriggerWin = () => {
     setPhase('won');
@@ -2694,7 +2909,7 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
   const currentQ = SUBWAY_QUESTIONS[currentQIndex % SUBWAY_QUESTIONS.length];
 
   return (
-    <div className="w-full max-w-[1700px] mx-auto px-2 sm:px-4 lg:px-8 py-2 sm:py-4 space-y-3 sm:space-y-4">
+    <div className="w-full max-w-[1700px] mx-auto px-2 sm:px-4 lg:px-8 py-2 sm:py-4 space-y-3 sm:space-y-4 overflow-x-hidden">
       {/* =========================================================================
           WELCOME / SETUP SCREEN
          ========================================================================= */}
@@ -2717,7 +2932,7 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
               站穩啦！{currentMomName}的捷運無座大考驗
             </h1>
             <p className="text-xs sm:text-sm text-[#6B4B52] max-w-lg mx-auto leading-relaxed font-medium">
-              體驗者正在進行 6.5kg 負重實測，<strong>捷運車廂無座考驗正式展開！</strong> 媽咪需抓緊立柱抵抗行駛顛簸，每題限時 <strong>15 秒</strong>，共 <strong>25 題產科精選題庫</strong>，跨越 5 座捷運車站！途中會有<strong>買菜婆婆（陳阿嬤）、高中生小明、熱心站務長</strong>突然上前提供暖心協助；需堅持站穩並<strong>答對達 18 題以上</strong>，才能以母愛毅力感動全車迎來終極讓座！
+              體驗者正在進行 6.5kg 負重實測，<strong>捷運車廂無座考驗正式展開！</strong> 媽咪需抓緊立柱抵抗行駛顛簸，每題限時 <strong>15 秒</strong>，共 <strong>10 題產科精選題庫</strong>，跨越 5 座捷運車站！中途會有<strong>買菜婆婆（陳阿嬤）</strong>上前提供暖心協助；需堅持站穩並<strong>答對達 7 題以上</strong>，才能以母愛毅力感動全車迎來終極讓座！
             </p>
           </div>
 
@@ -2938,13 +3153,13 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
           <video ref={bgVideoMediaRef} playsInline style={{ display: 'none' }} />
 
           {/* 2-Column Responsive Layout with viewport subtle train sway reaction */}
-          <div className={`grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4 items-start transition-transform duration-200 ${
+          <div className={`grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4 items-start w-full min-w-0 transition-transform duration-200 ${
             isRandomBump
               ? (bumpDirection === 'left' ? '-translate-x-0.5 translate-y-0.5 rotate-[-0.2deg]' : 'translate-x-0.5 -translate-y-0.5 rotate-[0.2deg]')
               : ''
           }`}>
             {/* Left Column (lg:col-span-7): The Interactive Subway Carriage Scene */}
-            <div className={`lg:col-span-7 transition-all ${
+            <div className={`lg:col-span-7 w-full min-w-0 transition-all ${
               mobileExpandedCarriage ? 'h-auto' : 'sticky top-[58px] lg:static z-20'
             }`}>
               <div className={`relative ${
@@ -3011,9 +3226,9 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
                 </div>
 
                 {/* Subway Dynamic Sway & Gravity Posture Stress Indicator Bar */}
-                <div className="w-full bg-[#FFFCF4]/95 border border-[#FFBCBD] rounded-xl px-2 sm:px-3 py-1 flex items-center justify-between gap-1.5 text-[9px] sm:text-[10px] shadow-2xs my-0.5">
+                <div className="w-full bg-[#FFFCF4]/95 border border-[#FFBCBD] rounded-xl px-2 sm:px-3 py-1 flex items-center justify-between gap-1 sm:gap-1.5 text-[9px] sm:text-[10px] shadow-2xs my-0.5 overflow-hidden">
                   {/* Left: Dynamic Train Motion status */}
-                  <div className="flex items-center gap-1.5 font-bold text-[#4A3337] truncate">
+                  <div className="flex items-center gap-1 sm:gap-1.5 font-bold text-[#4A3337] min-w-0 shrink">
                     <span className={`w-2 h-2 rounded-full shrink-0 ${
                       isWobbling
                         ? 'bg-rose-500 animate-ping'
@@ -3021,18 +3236,18 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
                         ? 'bg-amber-500 animate-ping'
                         : 'bg-emerald-500 animate-pulse'
                     }`} />
-                    <span className="font-mono text-[#E85D75] shrink-0 font-black">
-                      {isWobbling ? '🚨 劇烈晃動' : isRandomBump ? '⚡ 軌道顛簸' : '🚃 車廂前行'}
+                    <span className="font-mono text-[#E85D75] shrink-0 font-black text-[9px] sm:text-[10px]">
+                      {isWobbling ? '🚨 晃動' : isRandomBump ? '⚡ 顛簸' : '🚃 前行'}
                     </span>
-                    <span className="text-[#6B4B52] hidden sm:inline truncate">
+                    <span className="text-[#6B4B52] hidden md:inline truncate">
                       {swayDescription}
                     </span>
                   </div>
 
                   {/* Center: Real-time Dynamic Spirit Level (重心水準儀) */}
                   <div className="flex items-center gap-1 shrink-0 font-mono" title="即時檢測媽咪站立身體重心偏移角度">
-                    <span className="text-[#7A5860] hidden md:inline text-[9px]">重心角:</span>
-                    <div className="w-14 sm:w-20 h-2 sm:h-2.5 bg-stone-200/90 rounded-full relative overflow-hidden border border-stone-300 flex items-center justify-center">
+                    <span className="text-[#7A5860] hidden lg:inline text-[9px]">重心角:</span>
+                    <div className="w-12 sm:w-16 h-2 sm:h-2.5 bg-stone-200/90 rounded-full relative overflow-hidden border border-stone-300 flex items-center justify-center">
                       {/* Center balance line */}
                       <div className="absolute w-0.5 h-full bg-stone-400 left-1/2 -translate-x-1/2" />
                       {/* Dynamic Bubble Indicator */}
@@ -3040,7 +3255,7 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
                         className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full shadow-xs ${
                           Math.abs(tiltAngle) > 10 ? 'bg-rose-500' : Math.abs(tiltAngle) > 4 ? 'bg-amber-500' : 'bg-emerald-500'
                         }`}
-                        animate={{ x: Math.max(-25, Math.min(25, tiltAngle * 1.6)) }}
+                        animate={{ x: Math.max(-20, Math.min(20, tiltAngle * 1.3)) }}
                         transition={{ type: 'spring', stiffness: 320, damping: 20 }}
                       />
                     </div>
@@ -3054,8 +3269,8 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
                   {/* Right: Stress level badge & Shield indicator */}
                   <div className="flex items-center gap-1 shrink-0">
                     {hasShield && (
-                      <span className="px-1.5 py-0.5 rounded-full font-black text-[8px] sm:text-[9px] bg-sky-100 text-sky-900 border border-sky-300 animate-pulse flex items-center gap-0.5">
-                        <span>🛡️ 免急煞防護</span>
+                      <span className="px-1 sm:px-1.5 py-0.5 rounded-full font-black text-[8px] sm:text-[9px] bg-sky-100 text-sky-900 border border-sky-300 animate-pulse flex items-center gap-0.5">
+                        <span>🛡️ 護盾</span>
                       </span>
                     )}
                     <span className={`px-1.5 py-0.5 rounded-full font-black text-[8px] sm:text-[9px] ${
@@ -3066,10 +3281,10 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
                         : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                     }`}>
                       {currentStance === 'unheld'
-                        ? '⚠️ 站立重心不穩(負重大)'
+                        ? '⚠️ 站立不穩'
                         : currentStance === 'holding'
-                        ? '💪 扶好立柱(減壓70%)'
-                        : '💖 安心就座(零壓力)'}
+                        ? '💪 握好立柱'
+                        : '💖 安心就座'}
                     </span>
                   </div>
                 </div>
@@ -3183,12 +3398,12 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
                   </div>
                 </div>
 
-                {/* Passenger Speech Bubble */}
+                {/* Passenger Speech Bubble (Fully responsive, no overflow) */}
                 {passengerBubble && (
                   <motion.div
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="absolute top-1 sm:top-2 left-1/2 -translate-x-1/2 bg-[#FFFCF4]/95 text-[#4A3337] border-2 border-[#FFBCBD] rounded-xl sm:rounded-2xl px-2.5 py-1 sm:px-4 sm:py-2 text-[9px] sm:text-xs font-bold shadow-lg z-30 max-w-xs sm:max-w-sm text-center"
+                    className="absolute top-1 sm:top-2 left-1/2 -translate-x-1/2 bg-[#FFFCF4]/95 text-[#4A3337] border-2 border-[#FFBCBD] rounded-xl sm:rounded-2xl px-2.5 py-1 sm:px-4 sm:py-2 text-[9px] sm:text-xs font-bold shadow-lg z-30 w-[92%] sm:w-auto max-w-sm text-center break-words"
                   >
                     {passengerBubble}
                   </motion.div>
@@ -3323,12 +3538,12 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
             </div>
 
             {/* Right Column (lg:col-span-5): Question Card & Maternity Backpack Toolbar */}
-            <div className="lg:col-span-5 space-y-2.5 sm:space-y-3">
+            <div className="lg:col-span-5 w-full min-w-0 space-y-2.5 sm:space-y-3">
               {/* Question Status Bar */}
-              <div className="bg-[#FFE0E6]/90 rounded-2xl border-2 border-[#FFBCBD] px-3 py-2 shadow-2xs flex items-center justify-between gap-2">
-                <span className="text-[11px] sm:text-xs font-black text-[#4A3337] flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-red-600 inline-block animate-ping" />
-                  <span>{currentStation.name} · {currentStation.subtitle}</span>
+              <div className="bg-[#FFE0E6]/90 rounded-2xl border-2 border-[#FFBCBD] px-3 py-2 shadow-2xs flex items-center justify-between gap-2 min-w-0">
+                <span className="text-[11px] sm:text-xs font-black text-[#4A3337] flex items-center gap-1.5 min-w-0 flex-1 truncate">
+                  <span className="w-2 h-2 rounded-full bg-red-600 inline-block animate-ping shrink-0" />
+                  <span className="truncate">{currentStation.name} · {currentStation.subtitle}</span>
                 </span>
 
                 <div className="flex items-center gap-1.5">
@@ -3576,6 +3791,7 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
         </div>
       )}
 
+
       {/* =========================================================================
           MINI-GAME 3: SEAT DILEMMA MODAL (讓座抉擇 · 隨機突發事件與結局回饋)
          ========================================================================= */}
@@ -3791,7 +4007,7 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
               🎉 抵達目的地！乘客感動讓座，{currentMomName}安心入座！
             </h2>
             <p className="text-xs sm:text-sm text-[#6B4B52] max-w-lg mx-auto leading-relaxed font-medium">
-              經歷了忠義站、關渡站、竹圍站、紅樹林站到淡水終點站，{currentMomName}在顛簸車廂中雙手抓穩立柱，途中受到買菜阿嬤與熱心學弟的及時相助，並在累積答對 18 題後感動全車起立讓座，順利攻破所有產科關卡！
+              經歷了忠義站、關渡站、竹圍站、紅樹林站到淡水終點站，{currentMomName}在顛簸車廂中雙手抓穩立柱，中途受到買菜阿嬤的及時相助，並在累積答對 7 題後感動全車起立讓座，順利攻破所有產科關卡！
             </p>
           </div>
 
@@ -3862,7 +4078,7 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
           </div>
 
           <div className="p-3 sm:p-4 bg-[#FFFCF4] rounded-2xl border-2 border-[#FFBCBD] text-xs text-[#4A3337] font-bold max-w-lg mx-auto">
-            💡 闖關攻略：車廂顛簸晃動時請抓緊立柱；沿途遇到買菜阿嬤、高中生小明與北捷站務長時，善用他們提供的及時相助；累積答對 18 題即可感動全車迎來終極就座！
+            💡 闖關攻略：車廂顛簸晃動時請抓緊立柱；中途遇到買菜阿嬤時，善用她提供的及時相助；累積答對 7 題即可感動全車迎來終極就座！
           </div>
 
           <div className="pt-2">
@@ -3881,10 +4097,9 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
 };
 
 
-
-========================================
-FILE: src/components/subway/PregnantMomIllustration.tsx
-========================================
+================================================================================
+// FILE: src/components/subway/PregnantMomIllustration.tsx
+================================================================================
 
 import React from 'react';
 import { motion } from 'motion/react';
@@ -4425,28 +4640,19 @@ export const PregnantMomIllustration: React.FC<PregnantMomIllustrationProps> = (
 
 
 
-
-========================================
-FILE: src/components/video/VideoShowcaseView.tsx
-========================================
+================================================================================
+// FILE: src/components/video/VideoShowcaseView.tsx
+================================================================================
 
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Film,
   Upload,
-  RotateCcw,
-  FileVideo,
-  CheckCircle2,
   Trash2,
   Download,
   Link2,
-  ExternalLink,
-  AlertCircle,
   Loader2,
-  Copy,
   Check,
-  Sparkles,
-  Play,
 } from 'lucide-react';
 import { playKawaiiPop } from '../../utils/audio';
 import {
@@ -4457,7 +4663,6 @@ import {
   savePersistedVideoToLocalStorage,
   removePersistedVideoFromLocalStorage,
 } from '../../utils/videoStorage';
-import { DEFAULT_TEAM_VIDEO, PersistedVideoInfo } from '../../data/persistedVideo';
 
 interface VideoShowcaseViewProps {
   onBackToGame: () => void;
@@ -4469,28 +4674,28 @@ interface SavedVideoState {
   name: string;
   size?: number;
   uploadedAt: string;
-  savedOnServer?: boolean;
-  savedInIndexedDB?: boolean;
-  description?: string;
-  isDefault?: boolean;
 }
 
-function formatFileSize(bytes?: number): string {
-  if (!bytes) return '';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+// Check if a video entry is any residual news video so we can purge it
+function isOldNewsVideo(v: any): boolean {
+  if (!v) return false;
+  const str = JSON.stringify(v);
+  return (
+    str.includes('_HHZWmEm9K4') ||
+    str.includes('TVBS') ||
+    str.includes('新聞') ||
+    str.includes('news') ||
+    str.includes('台北捷運孕婦負重體驗') ||
+    str.includes('實測！ 孕婦挺肚搭捷運')
+  );
 }
 
 export function getYouTubeEmbedUrl(url: string): string | null {
   if (!url) return null;
-  // Support YouTube Shorts
   const shortsMatch = url.match(/youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/);
   if (shortsMatch && shortsMatch[1]) {
     return `https://www.youtube.com/embed/${shortsMatch[1]}?autoplay=0&rel=0`;
   }
-  // Support standard youtube.com and youtu.be
   const match = url.match(
     /(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([a-zA-Z0-9_-]{11})/
   );
@@ -4510,103 +4715,126 @@ export function getGoogleDriveEmbedUrl(url: string): string | null {
 }
 
 export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGame }) => {
-  // Initialize state immediately from localStorage or default video to ensure ZERO blank flash
-  const [videoData, setVideoData] = useState<SavedVideoState>(() => {
+  // Check localStorage for previously saved video - actively PURGE any residual news video
+  const [videoData, setVideoData] = useState<SavedVideoState | null>(() => {
     const cached = getPersistedVideoFromLocalStorage();
-    if (cached && (cached.url || cached.videoUrl)) {
-      return {
-        type: cached.type || 'url',
-        url: cached.fileUrl || cached.videoUrl || cached.url,
-        name: cached.originalName || cached.title || cached.name || DEFAULT_TEAM_VIDEO.name,
-        size: cached.size,
-        uploadedAt: cached.uploadedAt || DEFAULT_TEAM_VIDEO.uploadedAt,
-        savedOnServer: true,
-        description: cached.description || DEFAULT_TEAM_VIDEO.description,
-        isDefault: !!cached.isDefault,
-      };
+    if (cached) {
+      if (isOldNewsVideo(cached)) {
+        removePersistedVideoFromLocalStorage();
+        try {
+          localStorage.removeItem('team_persisted_video');
+          localStorage.removeItem('team_persisted_video_meta');
+        } catch (_) {}
+        return null;
+      }
+      if (cached.url || cached.fileUrl || cached.videoUrl) {
+        return {
+          type: cached.type || 'url',
+          url: cached.fileUrl || cached.videoUrl || cached.url,
+          name: cached.originalName || cached.title || cached.name || '小組實測影片',
+          size: cached.size,
+          uploadedAt: cached.uploadedAt || new Date().toISOString(),
+        };
+      }
     }
-    return {
-      type: DEFAULT_TEAM_VIDEO.type,
-      url: DEFAULT_TEAM_VIDEO.url,
-      name: DEFAULT_TEAM_VIDEO.name,
-      uploadedAt: DEFAULT_TEAM_VIDEO.uploadedAt,
-      savedOnServer: true,
-      description: DEFAULT_TEAM_VIDEO.description,
-      isDefault: true,
-    };
+    return null;
   });
 
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>('');
-  const [uploadError, setUploadError] = useState<string>('');
 
   // URL Input modal tab states
   const [showUrlModal, setShowUrlModal] = useState<boolean>(false);
   const [inputUrl, setInputUrl] = useState<string>('');
   const [inputTitle, setInputTitle] = useState<string>('');
-  const [copiedLink, setCopiedLink] = useState<boolean>(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const blobUrlRef = useRef<string | null>(null);
 
-  // Sync saved video from server on mount
+  // Sync saved video from server or IndexedDB on mount
   useEffect(() => {
     let isMounted = true;
 
-    async function syncSavedVideo() {
+    // Purge any news video lingering in localStorage
+    try {
+      const raw = localStorage.getItem('team_persisted_video_meta') || localStorage.getItem('team_persisted_video');
+      if (raw && (raw.includes('_HHZWmEm9K4') || raw.includes('TVBS') || raw.includes('台北捷運孕婦負重體驗'))) {
+        localStorage.removeItem('team_persisted_video_meta');
+        localStorage.removeItem('team_persisted_video');
+        if (isMounted) {
+          setVideoData(null);
+        }
+      }
+    } catch (_) {}
+
+    async function loadSavedVideo() {
+      // 1. Check server API
       try {
         const res = await fetch('/api/video-info');
         if (res.ok) {
           const json = await res.json();
           if (json.exists && json.video && isMounted) {
             const v = json.video;
-            const syncedState: SavedVideoState = {
-              type: v.type,
-              url: v.fileUrl || v.videoUrl || v.url,
-              name: v.originalName || v.title || v.name || '小組實測影片',
-              size: v.size,
-              uploadedAt: v.uploadedAt,
-              savedOnServer: true,
-              description: v.description || '',
-              isDefault: !!v.isDefault,
-            };
-            setVideoData(syncedState);
-            savePersistedVideoToLocalStorage(syncedState);
-            return;
+            // Ignore news video
+            if (!isOldNewsVideo(v)) {
+              const syncedState: SavedVideoState = {
+                type: v.type,
+                url: v.fileUrl || v.videoUrl || v.url,
+                name: v.originalName || v.title || v.name || '小組實測影片',
+                size: v.size,
+                uploadedAt: v.uploadedAt,
+              };
+              setVideoData(syncedState);
+              savePersistedVideoToLocalStorage(syncedState);
+              setIsLoading(false);
+              return;
+            } else {
+              // Delete old news video from server
+              fetch('/api/video', { method: 'DELETE' }).catch(() => {});
+            }
           }
         }
       } catch (err) {
         console.warn('Sync server video failed:', err);
       }
 
-      // Check client-side IndexedDB fallback if a local file was saved
+      // 2. Check client-side IndexedDB if a local file was saved
       try {
         const idbRecord = await getVideoFromIndexedDB();
         if (idbRecord && isMounted) {
-          if (blobUrlRef.current) {
-            URL.revokeObjectURL(blobUrlRef.current);
+          if (!isOldNewsVideo(idbRecord)) {
+            if (blobUrlRef.current) {
+              URL.revokeObjectURL(blobUrlRef.current);
+            }
+            const blobUrl = URL.createObjectURL(idbRecord.blob);
+            blobUrlRef.current = blobUrl;
+            const idbState: SavedVideoState = {
+              type: 'file',
+              url: blobUrl,
+              name: idbRecord.name,
+              size: idbRecord.size,
+              uploadedAt: new Date(idbRecord.savedAt).toISOString(),
+            };
+            setVideoData(idbState);
+            savePersistedVideoToLocalStorage(idbState);
+            setIsLoading(false);
+            return;
+          } else {
+            deleteVideoFromIndexedDB().catch(() => {});
           }
-          const blobUrl = URL.createObjectURL(idbRecord.blob);
-          blobUrlRef.current = blobUrl;
-          const idbState: SavedVideoState = {
-            type: 'file',
-            url: blobUrl,
-            name: idbRecord.name,
-            size: idbRecord.size,
-            uploadedAt: new Date(idbRecord.savedAt).toISOString(),
-            savedInIndexedDB: true,
-            savedOnServer: false,
-          };
-          setVideoData(idbState);
-          savePersistedVideoToLocalStorage(idbState);
         }
       } catch (idbErr) {
         console.warn('IndexedDB check error:', idbErr);
       }
+
+      if (isMounted) {
+        setVideoData(null);
+        setIsLoading(false);
+      }
     }
 
-    syncSavedVideo();
+    loadSavedVideo();
 
     return () => {
       isMounted = false;
@@ -4616,17 +4844,16 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
     };
   }, []);
 
-  // Handle local file upload (stores in both IndexedDB and server)
+  // Handle local file upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     playKawaiiPop();
-    setUploadError('');
-    setUploadProgress(10);
+    setUploadProgress(15);
     setStatusMessage('準備儲存影片中...');
 
-    // 1. Immediately create local blob URL so user sees instant preview
+    // 1. Immediately create local blob URL for instant display
     if (blobUrlRef.current) {
       URL.revokeObjectURL(blobUrlRef.current);
     }
@@ -4639,32 +4866,25 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
       name: file.name,
       size: file.size,
       uploadedAt: new Date().toISOString(),
-      savedInIndexedDB: false,
-      savedOnServer: false,
-      isDefault: false,
     };
     setVideoData(newVideoState);
     savePersistedVideoToLocalStorage(newVideoState);
 
-    // 2. Save directly to client IndexedDB using ArrayBuffer for permanent browser storage
+    // 2. Save directly to IndexedDB
     try {
-      setStatusMessage('正在儲存至本機資料庫 (IndexedDB)...');
       await saveVideoToIndexedDB(file, {
         name: file.name,
         size: file.size,
         type: file.type || 'video/mp4',
       });
-      newVideoState.savedInIndexedDB = true;
-      setVideoData({ ...newVideoState });
-      savePersistedVideoToLocalStorage(newVideoState);
     } catch (err) {
       console.warn('IndexedDB save failed:', err);
     }
 
-    // 3. Upload to server with progress tracking so anyone visiting the link can view it
+    // 3. Upload to server
     try {
-      setStatusMessage('正在上傳並同步至網站伺服器...');
-      setUploadProgress(30);
+      setStatusMessage('正在儲存影片至網站...');
+      setUploadProgress(40);
 
       const formData = new FormData();
       formData.append('video', file);
@@ -4673,7 +4893,7 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
 
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) {
-          const percent = Math.round((event.loaded / event.total) * 60) + 30;
+          const percent = Math.round((event.loaded / event.total) * 55) + 40;
           setUploadProgress(Math.min(percent, 95));
         }
       };
@@ -4684,38 +4904,33 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
             const resp = JSON.parse(xhr.responseText);
             if (resp.success && resp.video) {
               setUploadProgress(100);
-              setStatusMessage('✅ 影片已成功永久保存在網站中！所有訪客都能同步看到此影片！');
+              setStatusMessage('影片儲存完成！');
               const finalState: SavedVideoState = {
                 type: 'file',
                 url: resp.video.fileUrl,
                 name: resp.video.originalName,
                 size: resp.video.size,
                 uploadedAt: resp.video.uploadedAt,
-                savedOnServer: true,
-                savedInIndexedDB: true,
-                isDefault: false,
               };
               setVideoData(finalState);
               savePersistedVideoToLocalStorage(finalState);
               setTimeout(() => {
                 setUploadProgress(null);
                 setStatusMessage('');
-              }, 4000);
+              }, 2500);
               return;
             }
           } catch (_) {}
         }
-        // If server rejects because file exceeds 32MB reverse proxy limit,
-        // it remains safely preserved in IndexedDB + localStorage!
         setUploadProgress(null);
-        setStatusMessage('✅ 影片已保存在本瀏覽器中！每次打開都能直接播放！');
-        setTimeout(() => setStatusMessage(''), 4000);
+        setStatusMessage('影片已保存在本機！');
+        setTimeout(() => setStatusMessage(''), 2500);
       };
 
       xhr.onerror = () => {
         setUploadProgress(null);
-        setStatusMessage('✅ 影片已保存在本機資料庫中！');
-        setTimeout(() => setStatusMessage(''), 4000);
+        setStatusMessage('影片已保存在本機！');
+        setTimeout(() => setStatusMessage(''), 2500);
       };
 
       xhr.open('POST', '/api/upload-video');
@@ -4723,8 +4938,8 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
     } catch (uploadErr) {
       console.warn('Server upload error:', uploadErr);
       setUploadProgress(null);
-      setStatusMessage('✅ 影片已保存在本瀏覽器資料庫中！');
-      setTimeout(() => setStatusMessage(''), 4000);
+      setStatusMessage('影片已保存在本機！');
+      setTimeout(() => setStatusMessage(''), 2500);
     }
 
     if (e.target) {
@@ -4738,7 +4953,6 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
 
     playKawaiiPop();
     setIsLoading(true);
-    setUploadError('');
 
     try {
       const res = await fetch('/api/save-video-url', {
@@ -4746,7 +4960,7 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           url: inputUrl.trim(),
-          title: inputTitle.trim() || '小組雲端實測影片',
+          title: inputTitle.trim() || '小組實測影片',
         }),
       });
 
@@ -4758,17 +4972,15 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
             url: json.video.videoUrl,
             name: json.video.title,
             uploadedAt: json.video.uploadedAt,
-            savedOnServer: true,
-            isDefault: false,
           };
           setVideoData(updatedState);
           savePersistedVideoToLocalStorage(updatedState);
           setShowUrlModal(false);
           setInputUrl('');
           setInputTitle('');
-          setStatusMessage('✅ 線上影片連結已成功保存！所有點開此網站的人每一次打開都能看到！');
-          setTimeout(() => setStatusMessage(''), 4000);
           setIsLoading(false);
+          setStatusMessage('影片網址已儲存！');
+          setTimeout(() => setStatusMessage(''), 2500);
           return;
         }
       }
@@ -4776,26 +4988,23 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
       console.warn('Failed to save URL to server:', err);
     }
 
-    // Fallback: save to client state and localStorage
     const localFallbackState: SavedVideoState = {
       type: 'url',
       url: inputUrl.trim(),
-      name: inputTitle.trim() || '小組雲端影片',
+      name: inputTitle.trim() || '小組影片',
       uploadedAt: new Date().toISOString(),
-      savedOnServer: false,
-      isDefault: false,
     };
     setVideoData(localFallbackState);
     savePersistedVideoToLocalStorage(localFallbackState);
     setShowUrlModal(false);
     setIsLoading(false);
-    setStatusMessage('✅ 影片已保存在本瀏覽器中！');
-    setTimeout(() => setStatusMessage(''), 4000);
+    setStatusMessage('影片網址已儲存！');
+    setTimeout(() => setStatusMessage(''), 2500);
   };
 
-  // Reset to default presentation video
-  const handleResetToDefault = async () => {
-    if (!window.confirm('確定要還原為小組預設的實測展演影片嗎？')) return;
+  // Delete saved video
+  const handleClearVideo = async () => {
+    if (!window.confirm('確定要移除此影片嗎？')) return;
 
     playKawaiiPop();
     setIsLoading(true);
@@ -4803,7 +5012,7 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
     try {
       await fetch('/api/video', { method: 'DELETE' });
     } catch (err) {
-      console.warn('Server reset error:', err);
+      console.warn('Server delete error:', err);
     }
 
     try {
@@ -4817,27 +5026,16 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
       blobUrlRef.current = null;
     }
 
-    const defaultState: SavedVideoState = {
-      type: DEFAULT_TEAM_VIDEO.type,
-      url: DEFAULT_TEAM_VIDEO.url,
-      name: DEFAULT_TEAM_VIDEO.name,
-      uploadedAt: new Date().toISOString(),
-      savedOnServer: true,
-      description: DEFAULT_TEAM_VIDEO.description,
-      isDefault: true,
-    };
-    setVideoData(defaultState);
-    savePersistedVideoToLocalStorage(defaultState);
-    setIsLoading(false);
-    setStatusMessage('✅ 已還原為小組預設實測影片！所有訪客打開均可觀看。');
-    setTimeout(() => setStatusMessage(''), 3500);
-  };
+    removePersistedVideoFromLocalStorage();
+    try {
+      localStorage.removeItem('team_persisted_video');
+      localStorage.removeItem('team_persisted_video_meta');
+    } catch (_) {}
 
-  const handleCopyLink = () => {
-    playKawaiiPop();
-    navigator.clipboard.writeText(window.location.href);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2500);
+    setVideoData(null);
+    setIsLoading(false);
+    setStatusMessage('影片已移除');
+    setTimeout(() => setStatusMessage(''), 2000);
   };
 
   // Render video or embedded player
@@ -4871,23 +5069,20 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
         );
       }
 
-      // Direct URL fallback
       return (
         <video
           src={videoData.url}
           controls
-          autoPlay
+          playsInline
           className="w-full h-full object-contain"
         />
       );
     }
 
-    // Direct file
     return (
       <video
         src={videoData.url}
         controls
-        autoPlay
         playsInline
         className="w-full h-full object-contain"
       />
@@ -4895,7 +5090,7 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
   };
 
   return (
-    <div className="w-full max-w-[1700px] mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-5">
+    <div className="w-full max-w-4xl mx-auto px-2.5 sm:px-4 py-3 space-y-3 overflow-hidden">
       {/* Hidden file input */}
       <input
         ref={fileInputRef}
@@ -4905,268 +5100,206 @@ export const VideoShowcaseView: React.FC<VideoShowcaseViewProps> = ({ onBackToGa
         className="hidden"
       />
 
-      {/* Header */}
-      <div className="bg-gradient-to-r from-[#D3E8F4] via-[#FFE0E6] to-[#FFFCF4] rounded-3xl border-2 border-[#FFBCBD] p-5 sm:p-8 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div>
-          <div className="inline-flex items-center gap-1.5 bg-[#E85D75] text-white text-xs font-black px-3.5 py-1 rounded-full shadow-xs mb-1.5">
-            <Film className="w-3.5 h-3.5" />
-            <span>成果發表專屬 · 小組實測成果展演</span>
+      {/* Clean Header - perfectly responsive, zero overflow */}
+      <div className="bg-[#FFFCF4] rounded-2xl border-2 border-[#FFBCBD] p-3 sm:p-4 shadow-xs flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <div className="p-1.5 sm:p-2 bg-[#FFE0E6] text-[#E85D75] rounded-xl shrink-0">
+            <Film className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black text-[#4A3337] font-serif-tc">
-            小組妊娠體驗實測短片
-          </h1>
-          <p className="text-xs sm:text-sm text-[#6B4B52] mt-1">
-            影片已<strong>永久保留在伺服器與瀏覽器中</strong>，每一次打開所有人都能直接觀看！
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleCopyLink}
-            className="px-3.5 py-2.5 bg-white text-[#4A3337] hover:bg-[#FFE0E6] rounded-2xl text-xs font-black border border-[#FFBCBD] shadow-xs cursor-pointer shrink-0 flex items-center gap-1.5 transition-all"
-            title="複製目前網址，分享給老師或同學觀看"
-          >
-            {copiedLink ? (
-              <>
-                <Check className="w-3.5 h-3.5 text-emerald-600" />
-                <span className="text-emerald-700">網址已複製！</span>
-              </>
-            ) : (
-              <>
-                <Copy className="w-3.5 h-3.5 text-[#E85D75]" />
-                <span>複製分享網址</span>
-              </>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-base sm:text-xl font-black text-[#4A3337] font-serif-tc truncate">
+              小組妊娠體驗實測短片
+            </h1>
+            {videoData && (
+              <p className="text-[11px] sm:text-xs text-[#E85D75] font-bold truncate">
+                {videoData.name}
+              </p>
             )}
-          </button>
-
-          <button
-            onClick={onBackToGame}
-            className="px-4 py-2.5 bg-[#FFFCF4] text-[#4A3337] rounded-2xl text-xs font-black border border-[#FFBCBD] hover:bg-[#FFE0E6] shadow-xs cursor-pointer shrink-0 transition-colors"
-          >
-            ← 返回捷運答題遊戲
-          </button>
+          </div>
         </div>
+
+        <button
+          onClick={onBackToGame}
+          className="px-3 py-1.5 sm:px-4 sm:py-2 bg-[#FFFCF4] text-[#4A3337] rounded-xl text-xs font-black border border-[#FFBCBD] hover:bg-[#FFE0E6] shadow-xs cursor-pointer shrink-0 transition-colors whitespace-nowrap"
+        >
+          ← 返回遊戲
+        </button>
       </div>
 
-      {/* Status banner if message exists */}
+      {/* Status banner */}
       {statusMessage && (
-        <div className="bg-emerald-50 border-2 border-emerald-300 text-emerald-800 p-3.5 rounded-2xl flex items-center gap-2.5 text-xs font-bold animate-in fade-in shadow-xs">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>{statusMessage}</span>
+        <div className="bg-emerald-50 border border-emerald-300 text-emerald-800 px-3 py-2 rounded-xl text-xs font-bold animate-in fade-in flex items-center gap-1.5">
+          <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+          <span className="truncate">{statusMessage}</span>
         </div>
       )}
 
       {/* Upload progress indicator */}
       {uploadProgress !== null && (
-        <div className="bg-[#FFFCF4] border-2 border-[#FFBCBD] p-4 rounded-2xl space-y-2 shadow-xs">
-          <div className="flex justify-between items-center text-xs font-black text-[#4A3337]">
-            <span className="flex items-center gap-1.5">
-              <Loader2 className="w-3.5 h-3.5 text-[#E85D75] animate-spin" />
-              正在保存影片至網站...
+        <div className="bg-[#FFFCF4] border border-[#FFBCBD] p-2.5 rounded-xl space-y-1 shadow-xs">
+          <div className="flex justify-between items-center text-xs font-bold text-[#4A3337]">
+            <span className="flex items-center gap-1 text-[11px]">
+              <Loader2 className="w-3 h-3 text-[#E85D75] animate-spin" />
+              正在儲存影片...
             </span>
-            <span className="font-mono text-[#E85D75]">{uploadProgress}%</span>
+            <span className="font-mono text-[#E85D75] text-[11px]">{uploadProgress}%</span>
           </div>
-          <div className="w-full bg-stone-200 h-2.5 rounded-full overflow-hidden">
+          <div className="w-full bg-stone-200 h-1.5 rounded-full overflow-hidden">
             <div
-              className="bg-gradient-to-r from-[#E85D75] to-[#FF8C94] h-full transition-all duration-300"
+              className="bg-[#E85D75] h-full transition-all duration-300"
               style={{ width: `${uploadProgress}%` }}
             />
           </div>
-          <p className="text-[11px] text-[#6B4B52]">
-            影片正同步寫入網站伺服器與本機快取，保存完成後下次點開網址即可自動載入！
-          </p>
         </div>
       )}
 
-      {/* Persistence Info & Control Action Bar */}
-      <div className="bg-[#FFFCF4] rounded-3xl border-2 border-[#FFBCBD] p-4 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs">
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <div className="p-2 rounded-xl bg-[#FFE0E6] text-[#E85D75]">
-            <FileVideo className="w-4 h-4" />
-          </div>
-
-          <div className="space-y-0.5">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-bold text-[#4A3337]">
-                目前常駐展示影片：<span className="text-[#E85D75] font-black">{videoData.name}</span>
-              </span>
-              {videoData.isDefault && (
-                <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[10px]">
-                  ⭐️ 預設實測範例
-                </span>
-              )}
-              {videoData.size && (
-                <span className="text-[10px] bg-stone-100 text-stone-600 px-2 py-0.5 rounded-md font-mono">
-                  {formatFileSize(videoData.size)}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-1.5 text-[10px] text-emerald-700 font-bold">
-              <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>
-                全體訪客同步留存保證 · 每次打開所有人皆能立即觀看
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* File Upload Button */}
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="px-3.5 py-2 bg-[#E85D75] hover:bg-[#D44763] active:scale-95 text-white rounded-xl font-black cursor-pointer flex items-center gap-1.5 transition-all shadow-xs"
-            title="上傳你們小組自行拍攝的影片檔案"
-          >
-            <Upload className="w-3.5 h-3.5" />
-            <span>更換影片檔案</span>
-          </button>
-
-          {/* Cloud / YouTube URL Button */}
-          <button
-            onClick={() => {
-              playKawaiiPop();
-              setShowUrlModal(!showUrlModal);
-            }}
-            className="px-3.5 py-2 bg-[#D3E8F4] hover:bg-[#BCDDF0] text-[#30556E] active:scale-95 rounded-xl font-black cursor-pointer flex items-center gap-1.5 transition-all border border-[#BCDDF0]"
-            title="貼上 YouTube 或 Google Drive 等線上雲端連結"
-          >
-            <Link2 className="w-3.5 h-3.5" />
-            <span>輸入線上/雲端連結</span>
-          </button>
-
-          {/* Download Button (for file) */}
-          {videoData && videoData.type === 'file' && (
-            <a
-              href={videoData.url}
-              download={videoData.name}
-              className="px-3 py-2 bg-stone-100 hover:bg-stone-200 text-[#4A3337] rounded-xl font-bold cursor-pointer flex items-center gap-1 transition-all border border-stone-200 text-xs"
-              title="下載影片備份檔"
-            >
-              <Download className="w-3.5 h-3.5 text-stone-600" />
-              <span>下載</span>
-            </a>
-          )}
-
-          {/* Reset to Default Button */}
-          {!videoData.isDefault && (
-            <button
-              onClick={handleResetToDefault}
-              className="px-3 py-2 bg-stone-100 hover:bg-[#FFE0E6] text-[#4A3337] rounded-xl font-bold cursor-pointer flex items-center gap-1 transition-all border border-stone-200"
-              title="還原為小組預設實測影片"
-            >
-              <RotateCcw className="w-3.5 h-3.5 text-stone-600" />
-              <span>還原預設影片</span>
-            </button>
-          )}
-        </div>
-      </div>
-
       {/* Online / Cloud Link Input Modal Panel */}
       {showUrlModal && (
-        <div className="bg-[#FFFCF4] rounded-3xl border-2 border-[#BCDDF0] p-5 shadow-md animate-in fade-in space-y-3">
+        <div className="bg-[#FFFCF4] rounded-2xl border-2 border-[#BCDDF0] p-3 sm:p-4 shadow-sm animate-in fade-in space-y-2.5">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Link2 className="w-4 h-4 text-[#30556E]" />
-              <h3 className="font-black text-[#30556E] text-sm">
-                儲存線上影片網址（YouTube / Google 雲端硬碟 / 影片直連）
+            <div className="flex items-center gap-1.5">
+              <Link2 className="w-3.5 h-3.5 text-[#30556E]" />
+              <h3 className="font-bold text-[#30556E] text-xs">
+                貼上線上影片網址（YouTube / Google 雲端硬碟 / 直連）
               </h3>
             </div>
             <button
               onClick={() => setShowUrlModal(false)}
-              className="text-stone-400 hover:text-stone-600 text-xs font-bold"
+              className="text-stone-400 hover:text-stone-600 text-xs font-bold px-1"
             >
-              ✕ 關閉
+              ✕
             </button>
           </div>
 
-          <p className="text-xs text-[#6B4B52]">
-            如果影片檔案較大（例如超過 300MB），可以直接將影片上傳至 YouTube（可設為不公開）或 Google 雲端硬碟（開啟連結共用），將網址貼在下方，伺服器會永久留存，<strong>每次打開所有人都能看到那一部影片</strong>！
-          </p>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+          <div className="space-y-2">
             <div>
-              <label className="block text-[11px] font-black text-[#4A3337] mb-1">
-                影片網址 (URL) *
-              </label>
               <input
                 type="url"
                 value={inputUrl}
                 onChange={(e) => setInputUrl(e.target.value)}
-                placeholder="https://youtu.be/... 或 https://drive.google.com/..."
-                className="w-full px-3 py-2 text-xs border border-stone-300 rounded-xl focus:outline-none focus:border-[#E85D75] bg-white font-mono"
+                placeholder="貼上網址：https://youtu.be/... 或 雲端連結"
+                className="w-full px-3 py-1.5 text-xs border border-stone-300 rounded-lg focus:outline-none focus:border-[#E85D75] bg-white font-mono"
               />
             </div>
             <div>
-              <label className="block text-[11px] font-black text-[#4A3337] mb-1">
-                小組影片標題 (選填)
-              </label>
               <input
                 type="text"
                 value={inputTitle}
                 onChange={(e) => setInputTitle(e.target.value)}
-                placeholder="例：第一組 台北捷運孕婦負重體驗實測短片"
-                className="w-full px-3 py-2 text-xs border border-stone-300 rounded-xl focus:outline-none focus:border-[#E85D75] bg-white"
+                placeholder="影片名稱 (選填，如：第一組實測短片)"
+                className="w-full px-3 py-1.5 text-xs border border-stone-300 rounded-lg focus:outline-none focus:border-[#E85D75] bg-white"
               />
             </div>
           </div>
 
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex justify-end gap-2 pt-0.5">
             <button
               onClick={() => setShowUrlModal(false)}
-              className="px-3.5 py-1.5 text-xs text-stone-600 hover:bg-stone-100 rounded-xl font-bold"
+              className="px-3 py-1 text-xs text-stone-600 hover:bg-stone-100 rounded-lg"
             >
               取消
             </button>
             <button
               onClick={handleSaveUrl}
               disabled={!inputUrl.trim()}
-              className="px-4 py-1.5 text-xs bg-[#30556E] hover:bg-[#233F53] disabled:opacity-50 text-white rounded-xl font-black flex items-center gap-1.5 shadow-xs cursor-pointer"
+              className="px-3 py-1 text-xs bg-[#30556E] hover:bg-[#233F53] disabled:opacity-50 text-white rounded-lg font-bold cursor-pointer"
             >
-              <Check className="w-3.5 h-3.5" />
-              <span>保存線上影片至網站（所有人永久可見）</span>
+              確認儲存
             </button>
           </div>
         </div>
       )}
 
       {/* Video Player Display Screen */}
-      <div className="bg-stone-950 rounded-3xl border-3 border-[#FFBCBD] overflow-hidden shadow-xl aspect-16/9 relative flex items-center justify-center">
+      <div className="bg-stone-950 rounded-2xl border-2 border-[#FFBCBD] overflow-hidden shadow-md aspect-video w-full relative flex items-center justify-center">
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center gap-3 text-stone-300">
-            <Loader2 className="w-10 h-10 text-[#FFBCBD] animate-spin" />
-            <p className="text-sm font-bold">載入已保存影片中...</p>
+          <div className="flex flex-col items-center justify-center gap-2 text-stone-300">
+            <Loader2 className="w-6 h-6 text-[#FFBCBD] animate-spin" />
+            <p className="text-xs font-bold">載入中...</p>
           </div>
-        ) : (
+        ) : videoData ? (
           renderVideoPlayer()
+        ) : (
+          /* Empty State: Clean upload prompt */
+          <div
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full h-full flex flex-col items-center justify-center p-4 text-center cursor-pointer hover:bg-stone-900 transition-colors group"
+          >
+            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-[#FFE0E6]/20 border border-[#FFBCBD] group-hover:scale-105 transition-transform flex items-center justify-center mb-2.5 shadow-sm">
+              <Upload className="w-6 h-6 text-[#FFBCBD]" />
+            </div>
+            <h3 className="text-sm sm:text-base font-black text-[#FFE0E6] mb-1">
+              點擊上傳小組實測影片
+            </h3>
+            <p className="text-[11px] text-stone-400 max-w-xs mb-3">
+              支援手機錄影檔 (.mp4, .mov, .webm) 或線上連結
+            </p>
+            <div className="flex items-center gap-2">
+              <span className="px-3 py-1.5 bg-[#E85D75] group-hover:bg-[#D44763] text-white rounded-xl font-bold text-xs shadow-xs flex items-center gap-1">
+                <Upload className="w-3 h-3" />
+                <span>選擇影片檔案</span>
+              </span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowUrlModal(true);
+                }}
+                className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-stone-300 rounded-xl font-bold text-xs border border-stone-600 flex items-center gap-1"
+              >
+                <Link2 className="w-3 h-3" />
+                <span>貼上網址</span>
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
-      {/* Video Details Card */}
-      <div className="bg-[#FFFCF4] rounded-2xl border-2 border-[#FFBCBD] p-4 text-xs text-[#6B4B52] space-y-2">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <span className="font-black text-[#4A3337] flex items-center gap-1.5">
-            <Sparkles className="w-4 h-4 text-[#E85D75]" />
-            <span>影片留存與展示說明</span>
-          </span>
-          <span className="text-[10px] text-stone-500 font-mono">
-            更新時間：{new Date(videoData.uploadedAt).toLocaleString('zh-TW')}
-          </span>
+      {/* Simple Action Bar under Video */}
+      <div className="flex items-center justify-between flex-wrap gap-2 text-xs pt-0.5">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="px-3 py-1.5 bg-[#E85D75] hover:bg-[#D44763] text-white rounded-lg font-bold cursor-pointer flex items-center gap-1 shadow-xs transition-colors"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            <span>{videoData ? '更換影片' : '上傳影片檔案'}</span>
+          </button>
+
+          <button
+            onClick={() => {
+              playKawaiiPop();
+              setShowUrlModal(!showUrlModal);
+            }}
+            className="px-3 py-1.5 bg-[#FFFCF4] hover:bg-[#FFE0E6] text-[#4A3337] rounded-lg font-bold cursor-pointer flex items-center gap-1 border border-[#FFBCBD] transition-colors"
+          >
+            <Link2 className="w-3.5 h-3.5 text-[#E85D75]" />
+            <span>貼上線上網址</span>
+          </button>
         </div>
-        <p className="leading-relaxed">
-          {videoData.description || '小組實測展演：體驗者身著 6.5kg 負重裝置搭乘台北捷運淡水信義線，實測無座站立顛簸、身體重心失衡、乘客反應與友善讓座倡議。'}
-        </p>
-        <div className="pt-1 flex items-center gap-2 flex-wrap text-[11px] text-stone-500">
-          <span className="bg-[#FFE0E6] text-[#E85D75] px-2 py-0.5 rounded-md font-bold">
-            ✓ 伺服器同步
-          </span>
-          <span className="bg-[#FFE0E6] text-[#E85D75] px-2 py-0.5 rounded-md font-bold">
-            ✓ 本機雙重備份
-          </span>
-          <span className="bg-[#FFE0E6] text-[#E85D75] px-2 py-0.5 rounded-md font-bold">
-            ✓ 跨裝置即時共享
-          </span>
-        </div>
+
+        {videoData && (
+          <div className="flex items-center gap-1.5">
+            {videoData.type === 'file' && (
+              <a
+                href={videoData.url}
+                download={videoData.name}
+                className="px-2 py-1 text-stone-600 hover:text-stone-800 hover:bg-stone-100 rounded-lg font-medium flex items-center gap-1"
+                title="下載影片"
+              >
+                <Download className="w-3 h-3" />
+                <span>下載</span>
+              </a>
+            )}
+            <button
+              onClick={handleClearVideo}
+              className="px-2 py-1 text-stone-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg font-medium flex items-center gap-1 transition-colors"
+            >
+              <Trash2 className="w-3 h-3" />
+              <span>移除</span>
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

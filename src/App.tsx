@@ -17,14 +17,14 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#FFFCF4] text-[#4A3337]">
+    <div className="min-h-screen flex flex-col bg-[#FFFCF4] text-[#4A3337] w-full max-w-full overflow-x-hidden">
       <Navbar
         activeTab={activeTab}
         onTabChange={setActiveTab}
         onPrint={handlePrint}
       />
 
-      <main className="flex-1 w-full">
+      <main className="flex-1 w-full max-w-full overflow-x-hidden">
         {activeTab === 'subway' && (
           <SubwayGameView
             onSwitchToVideo={() => setActiveTab('video')}

@@ -51,13 +51,13 @@ interface SubwayGameViewProps {
 const QUESTION_TIME_LIMIT = 15; // 15 seconds per question
 const MAX_MISTAKES = 4; // 4 strikes before train emergency stop!
 
-// Metro Red Line Stations on the Tour
+// Metro Red Line Stations on the Tour (10 questions, 2 questions per station)
 const STATIONS = [
-  { id: 'R24', name: '忠義站', subtitle: '孕早期適應與通勤守護', range: [0, 4] },
-  { id: 'R25', name: '關渡站', subtitle: '孕中期生理調適與骨盆照護', range: [5, 9] },
-  { id: 'R26', name: '竹圍站', subtitle: '血液生理與胎動營養', range: [10, 14] },
-  { id: 'R27', name: '紅樹林站', subtitle: '待產鑑別與產兆破水', range: [15, 19] },
-  { id: 'R28', name: '淡水終點站', subtitle: '分娩拉梅茲呼吸魔王總決戰', range: [20, 24] }
+  { id: 'R24', name: '忠義站', subtitle: '孕早期適應與通勤守護', range: [0, 1] },
+  { id: 'R25', name: '關渡站', subtitle: '孕中期生理調適與骨盆照護', range: [2, 3] },
+  { id: 'R26', name: '竹圍站', subtitle: '血液生理與胎動營養', range: [4, 5] },
+  { id: 'R27', name: '紅樹林站', subtitle: '待產鑑別與產兆破水', range: [6, 7] },
+  { id: 'R28', name: '淡水終點站', subtitle: '分娩拉梅茲呼吸魔王總決戰', range: [8, 9] }
 ];
 
 export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
@@ -116,13 +116,6 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
   // Broadcast Multi-Lingual Switcher
   const [broadcastLang, setBroadcastLang] = useState<'zh' | 'tw' | 'hakka' | 'en'>('zh');
 
-  // Dynamic random subway incidents
-  const [activeIncident, setActiveIncident] = useState<{
-    id: string;
-    title: string;
-    desc: string;
-    actionText?: string;
-  } | null>(null);
   const [triggeredIncidents, setTriggeredIncidents] = useState<string[]>([]);
 
   // Fullscreen & Mobile View Modes
@@ -395,15 +388,15 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
         confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
       }
 
-      // Grand Triumphant Seat Offering: ONLY triggers late in the journey (after enduring 18+ correct answers)
-      if (!isSeated && nextCorrect >= 18 && !triggeredIncidents.includes('grand_seat_offering')) {
+      // Grand Triumphant Seat Offering: ONLY triggers late in the journey (after enduring 7+ correct answers out of 10)
+      if (!isSeated && nextCorrect >= 7 && !triggeredIncidents.includes('grand_seat_offering')) {
         setTriggeredIncidents((prev) => [...prev, 'grand_seat_offering']);
         setTimeout(() => {
           triggerGrandSeatOffering();
         }, 800);
       } else if (!isSeated) {
         setPassengerBubble('💪 媽咪雙手抓穩黃色立柱！6.5kg 負重站立，身體平衡超穩定！');
-        setBroadcastText('💪 媽咪扶好立柱了！堅持到底，答對 18 題即可感動全車迎來終極讓座！');
+        setBroadcastText('💪 媽咪扶好立柱了！堅持到底，答對 7 題即可感動全車迎來終極讓座！');
       }
 
       // Spontaneous Random Shield Blessing (護盾隨機出現)
@@ -481,63 +474,25 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
     const nextQ = currentQIndex + 1;
     setCurrentQIndex(nextQ);
 
-    // Station Transition Check
-    // Station Transition Check
-    if (nextQ === 5 || nextQ === 10 || nextQ === 15 || nextQ === 20) {
+    // Station Transition Check (arriving at stations: 2=關渡, 4=竹圍, 6=紅樹林, 8=淡水)
+    if (nextQ === 2 || nextQ === 4 || nextQ === 6 || nextQ === 8) {
       playSubwayStationChime();
       playMetroDoorBeep();
       const stationNames: Record<number, string> = {
-        5: '關渡站',
-        10: '竹圍站',
-        15: '紅樹林站',
-        20: '淡水終點站',
+        2: '關渡站',
+        4: '竹圍站',
+        6: '紅樹林站',
+        8: '淡水終點站',
       };
       const stName = stationNames[nextQ] || '下一站';
       setPassengerBubble(`🚇 叮咚！列車已駛抵【${stName}】，車門即將開啟，請小心月台間隙～`);
       setBroadcastText(`🚇 叮咚！列車抵達【${stName}】，全體乘客上下車請握好扶手！`);
     }
 
-    // Seat Dilemma Random Event Check: occurs randomly when not seated
-    if (!isSeated && !triggeredIncidents.includes('seat_dilemma') && (nextQ === 3 || (nextQ >= 2 && Math.random() < 0.35))) {
-      setTriggeredIncidents((prev) => [...prev, 'seat_dilemma']);
-      triggerSeatDilemma();
-      return;
-    }
-
-    // Dynamic incidents at other stations
-    if (nextQ === 2 && !triggeredIncidents.includes('curve')) {
-      setTriggeredIncidents((prev) => [...prev, 'curve']);
-      setActiveIncident({
-        id: 'curve',
-        title: '⚠️ 突發狀況：列車即將大過彎！',
-        desc: '前方大彎道！車廂離心力晃動，請立即握穩黃色立柱！',
-        actionText: '💪 抓緊立柱！'
-      });
-    } else if (nextQ === 6 && !triggeredIncidents.includes('grandma_veggies')) {
+    // Dynamic helpful NPC: 中途僅保留買菜阿嬤及時相助，大幅減少打斷，答題更專注
+    if (nextQ === 4 && !triggeredIncidents.includes('grandma_veggies')) {
       setTriggeredIncidents((prev) => [...prev, 'grandma_veggies']);
       triggerHelpfulNpc('grandma_veggies');
-    } else if (nextQ === 11 && !triggeredIncidents.includes('student_ming')) {
-      setTriggeredIncidents((prev) => [...prev, 'student_ming']);
-      triggerHelpfulNpc('student_ming');
-    } else if (nextQ === 13 && !triggeredIncidents.includes('dog')) {
-      setTriggeredIncidents((prev) => [...prev, 'dog']);
-      setActiveIncident({
-        id: 'dog',
-        title: '🐶 萌寵突發：推車裡的小柴犬豆豆探頭！',
-        desc: '推車裡的小柴犬探出毛茸茸小臉蛋汪了一聲，吐出小舌頭，全車乘客被融化！緊張氣氛消除，答題時間延長 +5 秒！',
-        actionText: '🥰 摸摸小柴犬！'
-      });
-    } else if (nextQ === 16 && !triggeredIncidents.includes('station_officer')) {
-      setTriggeredIncidents((prev) => [...prev, 'station_officer']);
-      triggerHelpfulNpc('station_officer');
-    } else if (nextQ === 22 && !triggeredIncidents.includes('kick')) {
-      setTriggeredIncidents((prev) => [...prev, 'kick']);
-      setActiveIncident({
-        id: 'kick',
-        title: '👶 溫馨小彩蛋：肚子裡的寶寶踢了一腳！',
-        desc: '『媽咪站得好穩，好棒！』肚子冒出滿滿愛心光芒，平衡值加滿，精神抖擻！',
-        actionText: '🥰 摸摸肚肚繼續加油！'
-      });
     }
   };
 
@@ -747,8 +702,8 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
       npcName: '全車乘客與同學們',
       npcRole: '感動全車的溫馨大讓座',
       avatar: '🎉💖💺',
-      badgeText: '🌟 奇蹟時刻 · 累積答對 18 題感動全車！',
-      quote: '「天哪！全車乘客看著車站跑馬燈：媽咪挺著 6.5kg 的負重，一路抓緊立柱，已經堅強跨越了 4 座大站、答對了 18 題產科考驗！高中生收起手機、上班族站起身、全車乘客一致起立鼓掌：『媽咪妳太偉大、太厲害了！最後這幾站抵達淡水，請無論如何一定要坐下休息！』」',
+      badgeText: '🌟 奇蹟時刻 · 累積答對 7 題感動全車！',
+      quote: '「天哪！全車乘客看著車站跑馬燈：媽咪挺著 6.5kg 的負重，一路抓緊立柱，已經堅強跨越了 4 座大站、答對了 7 題產科考驗！高中生收起手機、上班族站起身、全車乘客一致起立鼓掌：『媽咪妳太偉大、太厲害了！最後這幾站抵達淡水，請無論如何一定要坐下休息！』」',
       options: [
         {
           title: '欣然就座 · 享受全車掌聲與最後衝刺',
@@ -818,39 +773,6 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
     }, 4500);
   };
 
-  // Resolve dynamic incident
-  const handleResolveIncident = () => {
-    if (!activeIncident) return;
-    playSuccessChime();
-    if (activeIncident.id === 'curve') {
-      setHasShield(true);
-      setPassengerBubble('🛡️ 成功握緊立柱！獲得【好孕護盾】，可防禦一次急煞！');
-      setBroadcastText('🛡️ 媽咪緊握立柱，獲得護盾保佑！');
-      confetti({ particleCount: 70, spread: 70, origin: { y: 0.6 } });
-    } else if (activeIncident.id === 'plum') {
-      setTimeLeft((t) => t + 5);
-      setMistakeCount((m) => Math.max(0, m - 1));
-      setPassengerBubble('🍬 吃下阿嬤的話梅糖，胃部舒緩，失衡次數 -1，答題時間延長 5 秒！');
-      setBroadcastText('🍬 生津止渴舒緩孕吐，獲得長輩溫暖祝福！');
-    } else if (activeIncident.id === 'dog') {
-      setTimeLeft((t) => t + 5);
-      setBalance(100);
-      setPassengerBubble('🐶 柴犬豆豆開心地搖尾巴：汪汪！答題時間再 +5 秒！');
-      setBroadcastText('🐶 萌寵療癒全車，乘客們紛紛露出溫暖微笑！');
-      confetti({ particleCount: 60, spread: 60, origin: { y: 0.6 } });
-    } else if (activeIncident.id === 'broadcast') {
-      setHasShield(true);
-      setPassengerBubble('📢 全車乘客深受廣播觸動，紛紛投以友善關懷目光！');
-      setBroadcastText('💖 友善車廂文化，同理心讓座更有愛！');
-      confetti({ particleCount: 80, spread: 80, origin: { y: 0.6 } });
-    } else if (activeIncident.id === 'kick') {
-      setBalance(100);
-      setPassengerBubble('👶 寶寶在肚子裡揮揮小手：媽咪加油！');
-      setBroadcastText('👶 胎動頻繁活躍，母子同心迎戰魔王題！');
-      confetti({ particleCount: 90, spread: 80, origin: { y: 0.6 } });
-    }
-    setActiveIncident(null);
-  };
 
   const handleTriggerWin = () => {
     setPhase('won');
@@ -927,7 +849,7 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
   const currentQ = SUBWAY_QUESTIONS[currentQIndex % SUBWAY_QUESTIONS.length];
 
   return (
-    <div className="w-full max-w-[1700px] mx-auto px-2 sm:px-4 lg:px-8 py-2 sm:py-4 space-y-3 sm:space-y-4">
+    <div className="w-full max-w-[1700px] mx-auto px-2 sm:px-4 lg:px-8 py-2 sm:py-4 space-y-3 sm:space-y-4 overflow-x-hidden">
       {/* =========================================================================
           WELCOME / SETUP SCREEN
          ========================================================================= */}
@@ -950,7 +872,7 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
               站穩啦！{currentMomName}的捷運無座大考驗
             </h1>
             <p className="text-xs sm:text-sm text-[#6B4B52] max-w-lg mx-auto leading-relaxed font-medium">
-              體驗者正在進行 6.5kg 負重實測，<strong>捷運車廂無座考驗正式展開！</strong> 媽咪需抓緊立柱抵抗行駛顛簸，每題限時 <strong>15 秒</strong>，共 <strong>25 題產科精選題庫</strong>，跨越 5 座捷運車站！途中會有<strong>買菜婆婆（陳阿嬤）、高中生小明、熱心站務長</strong>突然上前提供暖心協助；需堅持站穩並<strong>答對達 18 題以上</strong>，才能以母愛毅力感動全車迎來終極讓座！
+              體驗者正在進行 6.5kg 負重實測，<strong>捷運車廂無座考驗正式展開！</strong> 媽咪需抓緊立柱抵抗行駛顛簸，每題限時 <strong>15 秒</strong>，共 <strong>10 題產科精選題庫</strong>，跨越 5 座捷運車站！中途會有<strong>買菜婆婆（陳阿嬤）</strong>上前提供暖心協助；需堅持站穩並<strong>答對達 7 題以上</strong>，才能以母愛毅力感動全車迎來終極讓座！
             </p>
           </div>
 
@@ -1171,13 +1093,13 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
           <video ref={bgVideoMediaRef} playsInline style={{ display: 'none' }} />
 
           {/* 2-Column Responsive Layout with viewport subtle train sway reaction */}
-          <div className={`grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4 items-start transition-transform duration-200 ${
+          <div className={`grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4 items-start w-full min-w-0 transition-transform duration-200 ${
             isRandomBump
               ? (bumpDirection === 'left' ? '-translate-x-0.5 translate-y-0.5 rotate-[-0.2deg]' : 'translate-x-0.5 -translate-y-0.5 rotate-[0.2deg]')
               : ''
           }`}>
             {/* Left Column (lg:col-span-7): The Interactive Subway Carriage Scene */}
-            <div className={`lg:col-span-7 transition-all ${
+            <div className={`lg:col-span-7 w-full min-w-0 transition-all ${
               mobileExpandedCarriage ? 'h-auto' : 'sticky top-[58px] lg:static z-20'
             }`}>
               <div className={`relative ${
@@ -1244,9 +1166,9 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
                 </div>
 
                 {/* Subway Dynamic Sway & Gravity Posture Stress Indicator Bar */}
-                <div className="w-full bg-[#FFFCF4]/95 border border-[#FFBCBD] rounded-xl px-2 sm:px-3 py-1 flex items-center justify-between gap-1.5 text-[9px] sm:text-[10px] shadow-2xs my-0.5">
+                <div className="w-full bg-[#FFFCF4]/95 border border-[#FFBCBD] rounded-xl px-2 sm:px-3 py-1 flex items-center justify-between gap-1 sm:gap-1.5 text-[9px] sm:text-[10px] shadow-2xs my-0.5 overflow-hidden">
                   {/* Left: Dynamic Train Motion status */}
-                  <div className="flex items-center gap-1.5 font-bold text-[#4A3337] truncate">
+                  <div className="flex items-center gap-1 sm:gap-1.5 font-bold text-[#4A3337] min-w-0 shrink">
                     <span className={`w-2 h-2 rounded-full shrink-0 ${
                       isWobbling
                         ? 'bg-rose-500 animate-ping'
@@ -1254,18 +1176,18 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
                         ? 'bg-amber-500 animate-ping'
                         : 'bg-emerald-500 animate-pulse'
                     }`} />
-                    <span className="font-mono text-[#E85D75] shrink-0 font-black">
-                      {isWobbling ? '🚨 劇烈晃動' : isRandomBump ? '⚡ 軌道顛簸' : '🚃 車廂前行'}
+                    <span className="font-mono text-[#E85D75] shrink-0 font-black text-[9px] sm:text-[10px]">
+                      {isWobbling ? '🚨 晃動' : isRandomBump ? '⚡ 顛簸' : '🚃 前行'}
                     </span>
-                    <span className="text-[#6B4B52] hidden sm:inline truncate">
+                    <span className="text-[#6B4B52] hidden md:inline truncate">
                       {swayDescription}
                     </span>
                   </div>
 
                   {/* Center: Real-time Dynamic Spirit Level (重心水準儀) */}
                   <div className="flex items-center gap-1 shrink-0 font-mono" title="即時檢測媽咪站立身體重心偏移角度">
-                    <span className="text-[#7A5860] hidden md:inline text-[9px]">重心角:</span>
-                    <div className="w-14 sm:w-20 h-2 sm:h-2.5 bg-stone-200/90 rounded-full relative overflow-hidden border border-stone-300 flex items-center justify-center">
+                    <span className="text-[#7A5860] hidden lg:inline text-[9px]">重心角:</span>
+                    <div className="w-12 sm:w-16 h-2 sm:h-2.5 bg-stone-200/90 rounded-full relative overflow-hidden border border-stone-300 flex items-center justify-center">
                       {/* Center balance line */}
                       <div className="absolute w-0.5 h-full bg-stone-400 left-1/2 -translate-x-1/2" />
                       {/* Dynamic Bubble Indicator */}
@@ -1273,7 +1195,7 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
                         className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full shadow-xs ${
                           Math.abs(tiltAngle) > 10 ? 'bg-rose-500' : Math.abs(tiltAngle) > 4 ? 'bg-amber-500' : 'bg-emerald-500'
                         }`}
-                        animate={{ x: Math.max(-25, Math.min(25, tiltAngle * 1.6)) }}
+                        animate={{ x: Math.max(-20, Math.min(20, tiltAngle * 1.3)) }}
                         transition={{ type: 'spring', stiffness: 320, damping: 20 }}
                       />
                     </div>
@@ -1287,8 +1209,8 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
                   {/* Right: Stress level badge & Shield indicator */}
                   <div className="flex items-center gap-1 shrink-0">
                     {hasShield && (
-                      <span className="px-1.5 py-0.5 rounded-full font-black text-[8px] sm:text-[9px] bg-sky-100 text-sky-900 border border-sky-300 animate-pulse flex items-center gap-0.5">
-                        <span>🛡️ 免急煞防護</span>
+                      <span className="px-1 sm:px-1.5 py-0.5 rounded-full font-black text-[8px] sm:text-[9px] bg-sky-100 text-sky-900 border border-sky-300 animate-pulse flex items-center gap-0.5">
+                        <span>🛡️ 護盾</span>
                       </span>
                     )}
                     <span className={`px-1.5 py-0.5 rounded-full font-black text-[8px] sm:text-[9px] ${
@@ -1299,10 +1221,10 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
                         : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                     }`}>
                       {currentStance === 'unheld'
-                        ? '⚠️ 站立重心不穩(負重大)'
+                        ? '⚠️ 站立不穩'
                         : currentStance === 'holding'
-                        ? '💪 扶好立柱(減壓70%)'
-                        : '💖 安心就座(零壓力)'}
+                        ? '💪 握好立柱'
+                        : '💖 安心就座'}
                     </span>
                   </div>
                 </div>
@@ -1416,12 +1338,12 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
                   </div>
                 </div>
 
-                {/* Passenger Speech Bubble */}
+                {/* Passenger Speech Bubble (Fully responsive, no overflow) */}
                 {passengerBubble && (
                   <motion.div
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="absolute top-1 sm:top-2 left-1/2 -translate-x-1/2 bg-[#FFFCF4]/95 text-[#4A3337] border-2 border-[#FFBCBD] rounded-xl sm:rounded-2xl px-2.5 py-1 sm:px-4 sm:py-2 text-[9px] sm:text-xs font-bold shadow-lg z-30 max-w-xs sm:max-w-sm text-center"
+                    className="absolute top-1 sm:top-2 left-1/2 -translate-x-1/2 bg-[#FFFCF4]/95 text-[#4A3337] border-2 border-[#FFBCBD] rounded-xl sm:rounded-2xl px-2.5 py-1 sm:px-4 sm:py-2 text-[9px] sm:text-xs font-bold shadow-lg z-30 w-[92%] sm:w-auto max-w-sm text-center break-words"
                   >
                     {passengerBubble}
                   </motion.div>
@@ -1556,12 +1478,12 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
             </div>
 
             {/* Right Column (lg:col-span-5): Question Card & Maternity Backpack Toolbar */}
-            <div className="lg:col-span-5 space-y-2.5 sm:space-y-3">
+            <div className="lg:col-span-5 w-full min-w-0 space-y-2.5 sm:space-y-3">
               {/* Question Status Bar */}
-              <div className="bg-[#FFE0E6]/90 rounded-2xl border-2 border-[#FFBCBD] px-3 py-2 shadow-2xs flex items-center justify-between gap-2">
-                <span className="text-[11px] sm:text-xs font-black text-[#4A3337] flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-red-600 inline-block animate-ping" />
-                  <span>{currentStation.name} · {currentStation.subtitle}</span>
+              <div className="bg-[#FFE0E6]/90 rounded-2xl border-2 border-[#FFBCBD] px-3 py-2 shadow-2xs flex items-center justify-between gap-2 min-w-0">
+                <span className="text-[11px] sm:text-xs font-black text-[#4A3337] flex items-center gap-1.5 min-w-0 flex-1 truncate">
+                  <span className="w-2 h-2 rounded-full bg-red-600 inline-block animate-ping shrink-0" />
+                  <span className="truncate">{currentStation.name} · {currentStation.subtitle}</span>
                 </span>
 
                 <div className="flex items-center gap-1.5">
@@ -1809,6 +1731,7 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
         </div>
       )}
 
+
       {/* =========================================================================
           MINI-GAME 3: SEAT DILEMMA MODAL (讓座抉擇 · 隨機突發事件與結局回饋)
          ========================================================================= */}
@@ -2024,7 +1947,7 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
               🎉 抵達目的地！乘客感動讓座，{currentMomName}安心入座！
             </h2>
             <p className="text-xs sm:text-sm text-[#6B4B52] max-w-lg mx-auto leading-relaxed font-medium">
-              經歷了忠義站、關渡站、竹圍站、紅樹林站到淡水終點站，{currentMomName}在顛簸車廂中雙手抓穩立柱，途中受到買菜阿嬤與熱心學弟的及時相助，並在累積答對 18 題後感動全車起立讓座，順利攻破所有產科關卡！
+              經歷了忠義站、關渡站、竹圍站、紅樹林站到淡水終點站，{currentMomName}在顛簸車廂中雙手抓穩立柱，中途受到買菜阿嬤的及時相助，並在累積答對 7 題後感動全車起立讓座，順利攻破所有產科關卡！
             </p>
           </div>
 
@@ -2095,7 +2018,7 @@ export const SubwayGameView: React.FC<SubwayGameViewProps> = ({
           </div>
 
           <div className="p-3 sm:p-4 bg-[#FFFCF4] rounded-2xl border-2 border-[#FFBCBD] text-xs text-[#4A3337] font-bold max-w-lg mx-auto">
-            💡 闖關攻略：車廂顛簸晃動時請抓緊立柱；沿途遇到買菜阿嬤、高中生小明與北捷站務長時，善用他們提供的及時相助；累積答對 18 題即可感動全車迎來終極就座！
+            💡 闖關攻略：車廂顛簸晃動時請抓緊立柱；中途遇到買菜阿嬤時，善用她提供的及時相助；累積答對 7 題即可感動全車迎來終極就座！
           </div>
 
           <div className="pt-2">
